@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Up Vision Clock IN & OUT</title>
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+    <!-- JsBarcode for Barcode Generation -->
+    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+    
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f7f6; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
+        
+        /* --- FIXED CORNER LAYOUTS --- */
+        .top-left-title { position: absolute; top: 25px; left: 30px; font-size: 1.8rem; color: #333; margin: 0; font-weight: bold; z-index: 10; }
+        .top-center-logo { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); max-width: 250px; max-height: 80px; object-fit: contain; z-index: 10; }
+        .bottom-right-credit { position: absolute; bottom: 15px; right: 30px; font-size: 1rem; color: #777; font-style: italic; z-index: 10; }
+        #admin-btn { position: absolute; top: 25px; right: 30px; background: #e9ecef; border: 1px solid #ccc; color: #333; cursor: pointer; font-size: 1rem; padding: 8px 16px; border-radius: 4px; font-weight: bold; transition: 0.2s; z-index: 10; }
+        #admin-btn:hover { background: #d3d9df; }
+        
+        /* Kiosk UI */
+        #kiosk-view { text-align: center; width: 100%; max-width: 900px; padding: 20px; margin-top: 60px; }
+        #clock { font-size: 6rem; font-weight: bold; color: #333; margin-bottom: 10px; }
+        #date-display { font-size: 1.8rem; color: #666; margin-bottom: 40px; }
+        
+        .input-group { display: flex; justify-content: center; gap: 10px; margin-bottom: 20px; }
+        #manual-input { padding: 15px; font-size: 1.5rem; width: 300px; text-align: center; border: 2px solid #ccc; border-radius: 8px; }
+        #manual-input:focus { border-color: #007bff; outline: none; }
+        .submit-btn { padding: 15px 30px; font-size: 1.5rem; background-color: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
+        .submit-btn:hover { background-color: #0056b3; }
+
+        .status-message { font-size: 1.5rem; padding: 15px; border-radius: 8px; margin-top: 15px; display: none; }
+        .success { background-color: #d4edda; color: #155724; border: 2px solid #c3e6cb; }
+        .error { background-color: #f8d7da; color: #721c24; border: 2px solid #f5c6cb; }
+
+        /* Modals */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: #fff; padding: 40px; border-radius: 12px; width: 90%; max-width: 500px; text-align: center; box-shadow: 0 5px 15px rgba(0,0,0,0.3); max-height: 90vh; overflow-y: auto; }
+        .modal-content h3 { font-size: 2rem; margin-top: 0; }
+        .modal-content p { font-size: 1.2rem; margin-bottom: 30px; }
+        
+        /* Admin Dashboard */
+        #admin-view { display: none; width: 100%; height: 100%; background: #f4f7f6; position: absolute; top: 0; left: 0; z-index: 100; padding: 20px; box-sizing: border-box; overflow-y: auto; }
+        .admin-header { display: flex; gap: 10px; margin-bottom: 20px; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .admin-header button { padding: 12px 20px; border: none; background: #e9ecef; cursor: pointer; border-radius: 4px; font-weight: bold; font-size: 1rem; }
+        .admin-header button.active { background: #007bff; color: white; }
+        .admin-header button.exit { background: #dc3545; color: white; margin-left: auto; }
+        
+        .tab-content { display: none; background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .tab-content.active { display: block; }
+        
+        .form-group { margin-bottom: 20px; text-align: left; }
+        .form-group label { display: block; margin-bottom: 8px; font-weight: bold; font-size: 1.1rem; }
+        .form-group input, .form-group select { width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 1rem; }
+        button.action-btn { background: #28a745; color: white; border: none; padding: 12px 20px; border-radius: 4px; cursor: pointer; font-size: 1.1rem; font-weight: bold; }
+        button.action-btn:hover { background: #218838; }
+        button.small-btn { padding: 6px 12px; font-size: 0.9rem; border-radius: 4px; border: none; cursor: pointer; color: white; margin: 2px; }
+        .btn-edit { background-color: #ffc107; color: #000; }
+        .btn-print { background-color: #17a2b8; }
+        .btn-delete { background-color: #dc3545; }
+        
+        /* Sub-Tabs for Employee Filters */
+        .filter-tabs { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
+        .filter-btn { padding: 8px 16px; border: 1px solid #ccc; background: #e9ecef; cursor: pointer; border-radius: 4px; font-weight: bold; color: #555; margin-bottom: 5px; }
+        .filter-btn.active { background: #17a2b8; color: white; border-color: #17a2b8; }
+        
+        /* Report & Data Table Styles */
+        .report-controls { display: flex; gap: 15px; margin-bottom: 15px; align-items: center; justify-content: space-between; }
+        .report-table { width: 100%; border-collapse: collapse; font-size: 14px; text-align: center; margin-bottom: 40px; border: 2px solid #000; }
+        .report-table th, .report-table td { border: 1px solid #000; padding: 6px; }
+        .report-header-title { background-color: #bfbfbf; font-weight: bold; font-size: 18px; padding: 10px !important; border: 2px solid #000; text-transform: capitalize; }
+        .text-green { color: #28a745; font-weight: bold; }
+        .row-break { color: #dc3545; }
+        
+        .note-input { width: 100%; border: 1px solid transparent; text-align: center; background: transparent; font-family: inherit; font-size: inherit; padding: 4px; box-sizing: border-box; }
+        .note-input:hover, .note-input:focus { border: 1px solid #ccc; background: #fff; outline: none; }
+        
+        @media print {
+            body * { visibility: hidden; }
+            #print-area, #print-area * { visibility: visible; }
+            #print-area { position: absolute; left: 0; top: 0; width: 100%; text-align: center; margin-top: 50px; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- KIOSK BACKGROUND CORNER ELEMENTS -->
+    <h1 class="top-left-title">Up Vision Clock IN & OUT</h1>
+    <img src="image_1fb393.png" alt="Signifi Solutions Inc. Logo" class="top-center-logo" onerror="this.onerror=null; this.alt='Logo missing. Place image_1fb393.png in the same folder as index.html.'; this.style.border='2px dashed #ccc'; this.style.padding='10px';">
+    <button id="admin-btn" onclick="showPinModal()">Admin Access</button>
+    <div class="bottom-right-credit">Created by Ishanjeet Dhaliwal</div>
+
+    <!-- Kiosk View -->
+    <div id="kiosk-view">
+        <div id="clock">00:00:00</div>
+        <div id="date-display">Date</div>
+        <h2>Scan your Badge or Enter ID to Punch In/Out</h2>
+        <div class="input-group">
+            <input type="text" id="manual-input" placeholder="Enter Badge ID" autofocus autocomplete="off">
+            <button class="submit-btn" onclick="initiatePunch()">Submit</button>
+        </div>
+        <div id="status-display" class="status-message"></div>
+    </div>
+
+    <!-- Confirmation Modal for Punch -->
+    <div id="confirm-modal" class="modal">
+        <div class="modal-content">
+            <h3 id="confirm-title">Confirm Punch</h3>
+            <p id="confirm-text"></p>
+            <div style="display: flex; gap: 15px; justify-content: center;">
+                <button class="action-btn" id="confirm-btn" onclick="executePunch()" style="font-size: 1.5rem; padding: 15px 40px;">Yes, Confirm</button>
+                <button class="action-btn" onclick="closeModal('confirm-modal')" style="background:#dc3545; font-size: 1.5rem; padding: 15px 40px;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- PIN Modal -->
+    <div id="pin-modal" class="modal">
+        <div class="modal-content" style="max-width: 300px;">
+            <h3>Admin PIN</h3>
+            <input type="password" id="admin-pin" class="form-group" style="width:100%; padding:10px; text-align:center; font-size: 1.5rem;">
+            <div style="display: flex; gap: 10px; justify-content: center;">
+                <button class="action-btn" onclick="verifyPin()">Login</button>
+                <button class="action-btn" style="background:#dc3545;" onclick="closeModal('pin-modal')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Barcode Print Modal -->
+    <div id="print-modal" class="modal">
+        <div class="modal-content">
+            <h3>Employee Badge</h3>
+            <div id="print-area">
+                <h2 id="print-name" style="margin-bottom: 5px;"></h2>
+                <svg id="barcode-svg"></svg>
+            </div>
+            <br><br>
+            <button class="action-btn" onclick="window.print()" style="margin-right: 10px;">Print Badge</button>
+            <button class="action-btn" style="background:#6c757d;" onclick="closeModal('print-modal')">Done</button>
+        </div>
+    </div>
+
+    <!-- Add/Edit Employee Modal -->
+    <div id="employee-modal" class="modal">
+        <div class="modal-content">
+            <h3 id="emp-modal-title">Add New Employee</h3>
+            <!-- Original ID to track changes -->
+            <input type="hidden" id="emp-original-id">
+            
+            <div class="form-group">
+                <label>Badge ID</label>
+                <input type="text" id="emp-id" placeholder="Enter custom ID (or leave blank to auto-generate)">
+            </div>
+            
+            <div class="form-group">
+                <label>Full Name</label>
+                <input type="text" id="emp-name" placeholder="John Doe">
+            </div>
+            
+            <!-- Dynamic Department Dropdown -->
+            <div class="form-group">
+                <label>Working Area (Department)</label>
+                <select id="emp-dept-select" onchange="toggleDeptCustom()">
+                    <option value="Production">Production</option>
+                    <option value="Inventory">Inventory</option>
+                    <option value="Quality">Quality</option>
+                    <option value="custom" style="font-weight: bold;">+ Add more...</option>
+                </select>
+                <input type="text" id="emp-dept-custom" placeholder="Type new department name..." style="display:none; margin-top:10px;">
+            </div>
+            
+            <!-- Dynamic Employment Type Dropdown -->
+            <div class="form-group">
+                <label>Employment / Agency Type</label>
+                <select id="emp-type-select" onchange="toggleTypeCustom()">
+                    <option value="Signifi">Signifi</option>
+                    <option value="T-DOT">T-DOT</option>
+                    <option value="Carrier Club">Carrier Club</option>
+                    <option value="custom" style="font-weight: bold;">+ Add more (New Agency)...</option>
+                </select>
+                <input type="text" id="emp-type-custom" placeholder="Type new agency name..." style="display:none; margin-top:10px;">
+            </div>
+
+            <div style="display: flex; gap: 10px; justify-content: center; margin-top: 20px;">
+                <button class="action-btn" id="save-emp-btn" onclick="saveEmployee()">Save Employee</button>
+                <button class="action-btn" style="background:#dc3545;" onclick="closeModal('employee-modal')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Admin Dashboard -->
+    <div id="admin-view">
+        <div class="admin-header">
+            <button class="tab-btn active" onclick="switchTab('employees')">Manage Employees</button>
+            <button class="tab-btn" onclick="switchTab('history')">Shift History</button>
+            <button class="tab-btn" onclick="switchTab('reports')">Timesheet Report</button>
+            <button class="exit" onclick="exitAdmin()">Exit to Kiosk</button>
+        </div>
+
+        <!-- Employees Tab -->
+        <div id="employees" class="tab-content active">
+            <div class="report-controls">
+                <h2 style="margin: 0;">Employee Directory</h2>
+                <button class="action-btn" onclick="openEmployeeModal()">+ Add New Employee</button>
+            </div>
+            
+            <!-- Category Filter Tabs -->
+            <div class="filter-tabs" id="dynamic-filter-tabs">
+                <button class="filter-btn active" onclick="setEmployeeFilter('All')">All Employees</button>
+            </div>
+
+            <table class="report-table" style="text-align: left;">
+                <thead>
+                    <tr style="background-color: #d9d9d9; font-weight: bold;">
+                        <th>Badge ID</th>
+                        <th>Name</th>
+                        <th>Department</th>
+                        <th>Type</th>
+                        <th>Agency</th>
+                        <th style="text-align:center;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="employee-list-body">
+                    <tr><td colspan="6" style="text-align:center;">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- History Tab -->
+        <div id="history" class="tab-content">
+            <h2>Raw Punch History</h2>
+            <table class="report-table" style="text-align: left;">
+                <thead><tr style="background-color: #d9d9d9; font-weight: bold;"><th>Date & Time</th><th>Name</th><th>Action</th><th>Type</th></tr></thead>
+                <tbody id="history-body"></tbody>
+            </table>
+        </div>
+
+        <!-- Weekly/Custom Reports Tab -->
+        <div id="reports" class="tab-content">
+            
+            <!-- Report Level Filter Tabs -->
+            <div class="filter-tabs" id="dynamic-report-filter-tabs">
+                <button class="filter-btn active" onclick="setReportFilter('All')">All Reports</button>
+            </div>
+
+            <div class="report-controls" style="background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #ddd;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <label style="font-size: 1.2rem;"><strong>Select Range:</strong></label>
+                    <input type="date" id="report-start" style="padding: 10px; font-size: 1rem; border-radius: 4px; border: 1px solid #ccc;">
+                    <span style="font-size: 1.2rem; font-weight: bold;">to</span>
+                    <input type="date" id="report-end" style="padding: 10px; font-size: 1rem; border-radius: 4px; border: 1px solid #ccc;">
+                    <button class="action-btn" onclick="generateReport()" style="background-color: #007bff; margin-left: 10px;">Generate</button>
+                </div>
+                <button class="action-btn" onclick="exportReportToExcel()">Export to Excel</button>
+            </div>
+            
+            <div id="report-container" style="overflow-x: auto; background: white; padding: 10px; border: 1px solid #ddd; margin-top: 15px;">
+                <p>Select a date range and click Generate to view the report.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // === 1. FIREBASE SETUP ===
+        const firebaseConfig = {
+            apiKey: "PASTE_YOUR_API_KEY_HERE", // IMPORTANT: Add your API key here
+            authDomain: "inventory-tracker-a2a8e.firebaseapp.com",
+            projectId: "inventory-tracker-a2a8e",
+            storageBucket: "inventory-tracker-a2a8e.appspot.com",
+            messagingSenderId: "PASTE_SENDER_ID_HERE",
+            appId: "PASTE_APP_ID_HERE"
+        };
+        
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        // === 2. KIOSK CLOCK & INPUT LOGIC ===
+        setInterval(() => {
+            const now = new Date();
+            document.getElementById('clock').innerText = now.toLocaleTimeString('en-US', { hour12: false });
+            document.getElementById('date-display').innerText = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        }, 1000);
+
+        const manualInput = document.getElementById('manual-input');
+        
+        document.addEventListener('click', (e) => {
+            if(document.getElementById('admin-view').style.display !== 'block' && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'INPUT' && e.target.closest('.modal') === null) {
+                manualInput.focus();
+            }
+        });
+
+        manualInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') initiatePunch();
+        });
+
+        let pendingBadgeId = null;
+        let pendingAction = null;
+        let pendingEmpData = null;
+
+        async function initiatePunch() {
+            const badgeId = manualInput.value.trim();
+            manualInput.value = ''; 
+            if(!badgeId) return;
+
+            const statusDiv = document.getElementById('status-display');
+            statusDiv.style.display = 'block';
+            statusDiv.className = 'status-message';
+            statusDiv.innerText = 'Checking Database...';
+
+            try {
+                const empRef = db.collection('employees').doc(badgeId);
+                const empDoc = await empRef.get();
+                
+                if (!empDoc.exists) {
+                    statusDiv.className = 'status-message error';
+                    statusDiv.innerText = 'Badge not found. Please contact Admin.';
+                    setTimeout(() => statusDiv.style.display = 'none', 3000);
+                    return;
+                }
+                
+                pendingEmpData = empDoc.data();
+                pendingBadgeId = badgeId;
+                
+                const shiftQuery = await db.collection('shifts')
+                    .where('employeeId', '==', badgeId)
+                    .orderBy('timestamp', 'desc')
+                    .limit(1)
+                    .get();
+
+                pendingAction = 'IN';
+                if (!shiftQuery.empty) {
+                    const lastPunch = shiftQuery.docs[0].data();
+                    if (lastPunch.action === 'IN') pendingAction = 'OUT';
+                }
+
+                statusDiv.style.display = 'none'; 
+                document.getElementById('confirm-title').innerText = pendingAction === 'IN' ? 'Punch In' : 'Punch Out';
+                document.getElementById('confirm-title').style.color = pendingAction === 'IN' ? '#28a745' : '#007bff';
+                document.getElementById('confirm-text').innerHTML = `Hello <strong>${pendingEmpData.name}</strong>!<br>Are you ready to punch <strong>${pendingAction}</strong>?`;
+                document.getElementById('confirm-modal').style.display = 'flex';
+                document.getElementById('confirm-btn').focus();
+
+            } catch (err) {
+                console.error(err);
+                statusDiv.className = 'status-message error';
+                statusDiv.innerText = 'Network Error. Is Firebase configured?';
+                setTimeout(() => statusDiv.style.display = 'none', 3000);
+            }
+        }
+
+        async function executePunch() {
+            document.getElementById('confirm-modal').style.display = 'none';
+            const statusDiv = document.getElementById('status-display');
+            
+            try {
+                await db.collection('shifts').add({
+                    employeeId: pendingBadgeId,
+                    name: pendingEmpData.name,
+                    action: pendingAction,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    type: pendingEmpData.type,
+                    department: pendingEmpData.department
+                });
+
+                statusDiv.style.display = 'block';
+                statusDiv.className = 'status-message success';
+                statusDiv.innerText = pendingAction === 'IN' ? `Welcome, ${pendingEmpData.name}! Shift Started.` : `Goodbye, ${pendingEmpData.name}! Shift Ended.`;
+                
+                setTimeout(() => statusDiv.style.display = 'none', 3500);
+                manualInput.focus();
+
+            } catch (err) {
+                console.error(err);
+                alert("Error saving punch to database. Check Firebase config.");
+            }
+        }
+
+        // === 3. ADMIN & MODALS ===
+        function showPinModal() {
+            document.getElementById('pin-modal').style.display = 'flex';
+            document.getElementById('admin-pin').focus();
+        }
+        function closeModal(id) {
+            document.getElementById(id).style.display = 'none';
+            if(id === 'confirm-modal' || id === 'pin-modal') manualInput.focus();
+        }
+        function verifyPin() {
+            const pin = document.getElementById('admin-pin').value;
+            if (pin === '1234') { 
+                document.getElementById('pin-modal').style.display = 'none';
+                document.getElementById('admin-pin').value = '';
+                document.getElementById('admin-view').style.display = 'block';
+                loadEmployees(); 
+            } else {
+                alert('Incorrect PIN');
+            }
+        }
+        function exitAdmin() {
+            document.getElementById('admin-view').style.display = 'none';
+            manualInput.focus();
+        }
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+            event.target.classList.add('active');
+            
+            if (tabId === 'employees') loadEmployees();
+            if (tabId === 'history') loadHistory();
+            if (tabId === 'reports') {
+                if(!document.getElementById('report-start').value) {
+                    let d = new Date();
+                    let day = d.getDay(), diff = d.getDate() - day + (day == 0 ? -6 : 1);
+                    d.setDate(diff); // Set to recent Monday
+                    document.getElementById('report-start').value = d.toISOString().split('T')[0];
+                    
+                    let endD = new Date(d);
+                    endD.setDate(endD.getDate() + 6); // Default 7 days
+                    document.getElementById('report-end').value = endD.toISOString().split('T')[0];
+                }
+            }
+        }
+
+        function toggleDeptCustom() {
+            document.getElementById('emp-dept-custom').style.display = 
+                document.getElementById('emp-dept-select').value === 'custom' ? 'block' : 'none';
+        }
+
+        function toggleTypeCustom() {
+            document.getElementById('emp-type-custom').style.display = 
+                document.getElementById('emp-type-select').value === 'custom' ? 'block' : 'none';
+        }
+
+        // === 4. EMPLOYEE MANAGEMENT DIRECTORY ===
+        let currentEmpFilter = 'All';
+
+        function setEmployeeFilter(filterType) {
+            currentEmpFilter = filterType;
+            loadEmployees();
+        }
+
+        async function loadEmployees() {
+            const tbody = document.getElementById('employee-list-body');
+            const filterTabs = document.getElementById('dynamic-filter-tabs');
+            
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">Loading...</td></tr>';
+            
+            try {
+                const snapshot = await db.collection('employees').orderBy('name').get();
+                tbody.innerHTML = '';
+                
+                if (snapshot.empty) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">No employees found. Add one above!</td></tr>';
+                    return;
+                }
+
+                const agencies = new Set();
+                snapshot.forEach(doc => {
+                    const emp = doc.data();
+                    if (emp.type === 'Agency') {
+                        agencies.add(emp.agencyName ? emp.agencyName.trim() : 'Unnamed Agency');
+                    }
+                });
+
+                let tabsHtml = `<button class="filter-btn ${currentEmpFilter === 'All' ? 'active' : ''}" onclick="setEmployeeFilter('All')">All Employees</button>
+                                <button class="filter-btn ${currentEmpFilter === 'Signifi' ? 'active' : ''}" onclick="setEmployeeFilter('Signifi')">Signifi</button>`;
+                
+                agencies.forEach(agency => {
+                    const safeAgencyName = agency.replace(/'/g, "\\'");
+                    tabsHtml += `<button class="filter-btn ${currentEmpFilter === agency ? 'active' : ''}" onclick="setEmployeeFilter('${safeAgencyName}')">${agency}</button>`;
+                });
+                
+                filterTabs.innerHTML = tabsHtml;
+
+                let filteredCount = 0;
+                const renderEmployeeRow = (emp) => {
+                    const safeEmpJson = JSON.stringify(emp).replace(/"/g, '&quot;');
+                    let displayAgency = (emp.type === 'Agency') ? (emp.agencyName || 'Unnamed Agency') : '-';
+                    return `
+                        <tr>
+                            <td><strong>${emp.id}</strong></td>
+                            <td>${emp.name}</td>
+                            <td>${emp.department}</td>
+                            <td>${emp.type}</td>
+                            <td>${displayAgency}</td>
+                            <td style="text-align:center;">
+                                <button class="small-btn btn-print" onclick="printBadge('${emp.id}', '${emp.name}', '${emp.department}')">Print</button>
+                                <button class="small-btn btn-edit" onclick="openEmployeeModal(${safeEmpJson})">Edit</button>
+                                <button class="small-btn btn-delete" onclick="deleteEmployee('${emp.id}', '${emp.name}')">Delete</button>
+                            </td>
+                        </tr>
+                    `;
+                };
+
+                snapshot.forEach(doc => {
+                    const emp = doc.data();
+                    const empAgency = emp.agencyName ? emp.agencyName.trim() : 'Unnamed Agency';
+                    
+                    let show = false;
+                    if (currentEmpFilter === 'All') show = true;
+                    else if (currentEmpFilter === 'Signifi' && emp.type === 'Signifi') show = true;
+                    else if (emp.type === 'Agency' && empAgency === currentEmpFilter) show = true;
+
+                    if (show) {
+                        tbody.innerHTML += renderEmployeeRow(emp);
+                        filteredCount++;
+                    }
+                });
+
+                if (filteredCount === 0) {
+                    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;">No employees found for this category.</td></tr>`;
+                }
+
+            } catch(e) {
+                console.error(e);
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:red;">Database not connected. Check Firebase config.</td></tr>';
+            }
+        }
+
+        function openEmployeeModal(empData = null) {
+            const modal = document.getElementById('employee-modal');
+            const title = document.getElementById('emp-modal-title');
+            const saveBtn = document.getElementById('save-emp-btn');
+            
+            document.getElementById('emp-original-id').value = '';
+            document.getElementById('emp-id').value = '';
+            document.getElementById('emp-name').value = '';
+            document.getElementById('emp-dept-select').value = 'Production';
+            document.getElementById('emp-dept-custom').value = '';
+            document.getElementById('emp-type-select').value = 'Signifi';
+            document.getElementById('emp-type-custom').value = '';
+            
+            toggleDeptCustom();
+            toggleTypeCustom();
+
+            if (empData) {
+                title.innerText = "Edit Employee Information";
+                saveBtn.innerText = "Update Employee";
+                document.getElementById('emp-original-id').value = empData.id;
+                document.getElementById('emp-id').value = empData.id;
+                document.getElementById('emp-name').value = empData.name;
+                
+                const predefinedDepts = ['Production', 'Inventory', 'Quality'];
+                if (predefinedDepts.includes(empData.department)) {
+                    document.getElementById('emp-dept-select').value = empData.department;
+                } else {
+                    document.getElementById('emp-dept-select').value = 'custom';
+                    document.getElementById('emp-dept-custom').value = empData.department;
+                }
+                
+                if (empData.type === 'Signifi') {
+                    document.getElementById('emp-type-select').value = 'Signifi';
+                } else {
+                    const predefinedAgencies = ['T-DOT', 'Carrier Club'];
+                    if (predefinedAgencies.includes(empData.agencyName)) {
+                        document.getElementById('emp-type-select').value = empData.agencyName;
+                    } else {
+                        document.getElementById('emp-type-select').value = 'custom';
+                        document.getElementById('emp-type-custom').value = empData.agencyName;
+                    }
+                }
+                
+                toggleDeptCustom();
+                toggleTypeCustom();
+            } else {
+                title.innerText = "Add New Employee";
+                saveBtn.innerText = "Save & Generate Badge";
+            }
+            
+            modal.style.display = 'flex';
+        }
+
+        async function saveEmployee() {
+            const originalId = document.getElementById('emp-original-id').value; 
+            const requestedId = document.getElementById('emp-id').value.trim(); 
+            const name = document.getElementById('emp-name').value.trim();
+            
+            if (!name) { alert("Please enter the employee's Full Name."); return; }
+
+            let dept = document.getElementById('emp-dept-select').value;
+            if (dept === 'custom') {
+                dept = document.getElementById('emp-dept-custom').value.trim();
+                if(!dept) dept = 'General';
+            }
+
+            let typeSelection = document.getElementById('emp-type-select').value;
+            if (typeSelection === 'custom') {
+                typeSelection = document.getElementById('emp-type-custom').value.trim();
+            }
+            
+            let type = 'Agency';
+            let agency = typeSelection;
+
+            if (typeSelection.toLowerCase() === 'signifi') {
+                type = 'Signifi';
+                agency = '';
+            } else if (!typeSelection) {
+                alert("Please specify the Agency name."); 
+                return;
+            }
+
+            const badgeId = requestedId ? requestedId : Math.floor(100000 + Math.random() * 900000).toString();
+            const isNew = !originalId;
+
+            try {
+                if (!isNew && originalId !== badgeId) {
+                    await db.collection('employees').doc(originalId).delete();
+                }
+
+                await db.collection('employees').doc(badgeId).set({
+                    id: badgeId,
+                    name: name,
+                    department: dept,
+                    type: type,
+                    agencyName: agency
+                });
+
+                closeModal('employee-modal');
+                loadEmployees(); 
+
+                if (isNew || originalId !== badgeId) {
+                    printBadge(badgeId, name, dept);
+                } else {
+                    alert("Employee information updated successfully!");
+                }
+            } catch(e) {
+                console.error("Database save failed:", e);
+                alert("Database save failed. Ensure your Firebase API key is added.");
+            }
+        }
+
+        async function deleteEmployee(badgeId, name) {
+            if(confirm(`Are you SURE you want to delete ${name} (Badge: ${badgeId})?\n\nThey will no longer be able to punch in/out. This action cannot be undone.`)) {
+                try {
+                    await db.collection('employees').doc(badgeId).delete();
+                    loadEmployees(); 
+                } catch(e) {
+                    console.error(e);
+                    alert("Failed to delete employee.");
+                }
+            }
+        }
+
+        function printBadge(badgeId, name, dept) {
+            document.getElementById('print-name').innerText = `${name} - ${dept}`;
+            JsBarcode("#barcode-svg", badgeId, {
+                format: "CODE128", width: 2, height: 100, displayValue: false
+            });
+            document.getElementById('print-modal').style.display = 'flex';
+        }
+
+        // === 5. HISTORY VIEWER ===
+        async function loadHistory() {
+            const tbody = document.getElementById('history-body');
+            tbody.innerHTML = '<tr><td colspan="4">Loading...</td></tr>';
+            
+            try {
+                const q = db.collection('shifts').orderBy('timestamp', 'desc').limit(50);
+                const snapshot = await q.get();
+                
+                tbody.innerHTML = '';
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    const time = data.timestamp ? data.timestamp.toDate().toLocaleString() : 'N/A';
+                    tbody.innerHTML += `<tr>
+                        <td>${time}</td>
+                        <td>${data.name}</td>
+                        <td><b style="color:${data.action==='IN'?'green':'blue'}">${data.action}</b></td>
+                        <td>${data.type}</td>
+                    </tr>`;
+                });
+            } catch(e) {
+                tbody.innerHTML = '<tr><td colspan="4">Database not connected yet.</td></tr>';
+            }
+        }
+
+        // === 6. CUSTOM RANGE TIMESHEET REPORT (DYNAMIC GROUPS) ===
+        let currentReportFilter = 'All';
+
+        function setReportFilter(filterType) {
+            currentReportFilter = filterType;
+            document.querySelectorAll('#dynamic-report-filter-tabs .filter-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            generateReport();
+        }
+
+        async function generateReport() {
+            const startStr = document.getElementById('report-start').value;
+            const endStr = document.getElementById('report-end').value;
+            
+            if (!startStr || !endStr) {
+                alert("Please select both a Start Date and End Date.");
+                return;
+            }
+            
+            const startD = new Date(startStr + "T00:00:00");
+            const endD = new Date(endStr + "T00:00:00");
+            
+            if (endD < startD) {
+                alert("End date must be after start date.");
+                return;
+            }
+
+            // Calculate range of dates
+            const rangeDates = [];
+            let currentD = new Date(startD);
+            while (currentD <= endD) {
+                rangeDates.push(new Date(currentD));
+                currentD.setDate(currentD.getDate() + 1);
+            }
+
+            if (rangeDates.length > 31) {
+                alert("Please select a date range of 31 days or less to prevent slow loading.");
+                return;
+            }
+
+            const queryEndD = new Date(endD);
+            queryEndD.setHours(23, 59, 59, 999);
+
+            const container = document.getElementById('report-container');
+            const filterTabsContainer = document.getElementById('dynamic-report-filter-tabs');
+            container.innerHTML = "<p>Loading timesheets...</p>";
+
+            try {
+                const empsSnapshot = await db.collection("employees").get();
+                const employees = {};
+                const reportAgencies = new Set();
+                
+                empsSnapshot.forEach(doc => { 
+                    const emp = doc.data();
+                    employees[doc.id] = emp; 
+                    if (emp.type === 'Agency') {
+                        reportAgencies.add(emp.agencyName ? emp.agencyName.trim() : 'Unnamed Agency');
+                    }
+                });
+
+                let tabsHtml = `<button class="filter-btn ${currentReportFilter === 'All' ? 'active' : ''}" onclick="setReportFilter('All')">All Reports</button>
+                                <button class="filter-btn ${currentReportFilter === 'Signifi' ? 'active' : ''}" onclick="setReportFilter('Signifi')">Signifi</button>`;
+                reportAgencies.forEach(agency => {
+                    const safeAgencyName = agency.replace(/'/g, "\\'");
+                    tabsHtml += `<button class="filter-btn ${currentReportFilter === agency ? 'active' : ''}" onclick="setReportFilter('${safeAgencyName}')">${agency}</button>`;
+                });
+                filterTabsContainer.innerHTML = tabsHtml;
+
+                const shiftsSnap = await db.collection("shifts")
+                    .where("timestamp", ">=", startD)
+                    .where("timestamp", "<=", queryEndD)
+                    .orderBy("timestamp", "asc").get();
+                
+                const shiftData = {};
+                shiftsSnap.forEach(doc => {
+                    const s = doc.data();
+                    const d = s.timestamp.toDate();
+                    const dateStr = d.toISOString().split('T')[0];
+                    
+                    if (!shiftData[s.employeeId]) shiftData[s.employeeId] = {};
+                    if (!shiftData[s.employeeId][dateStr]) shiftData[s.employeeId][dateStr] = {};
+                    
+                    if (s.action === "IN" && !shiftData[s.employeeId][dateStr].in) {
+                        shiftData[s.employeeId][dateStr].in = d;
+                    } else if (s.action === "OUT") {
+                        shiftData[s.employeeId][dateStr].out = d;
+                    }
+                });
+
+                const groups = {}; 
+                for (let empId in employees) {
+                    let emp = employees[empId];
+                    let agencyDisplay = (emp.type === 'Signifi') ? 'Signifi' : (emp.agencyName ? emp.agencyName.trim() : 'Unnamed Agency');
+                    
+                    if (currentReportFilter !== 'All' && agencyDisplay !== currentReportFilter) continue;
+
+                    let deptName = emp.department || 'General';
+                    
+                    if (!groups[agencyDisplay]) groups[agencyDisplay] = {};
+                    if (!groups[agencyDisplay][deptName]) groups[agencyDisplay][deptName] = [];
+                    groups[agencyDisplay][deptName].push(emp);
+                }
+
+                let html = "";
+                const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+                for (let agency in groups) {
+                    for (let dept in groups[agency]) {
+                        
+                        let tableTitle = `${dept} - Timesheet${agency === 'Signifi' ? '' : ' - ' + agency}`;
+                        let firstColHeader = `${dept} - timesheet at Tech Avn.`;
+                        
+                        // Total columns: 1 (Agency) + 1 (Name) + 1 (In/Out) + rangeDates.length + 1 (Total Hrs) + 1 (Working Area) + 1 (Note) = rangeDates.length + 6
+                        let titleColspan = rangeDates.length + 6;
+
+                        html += `<table class="report-table" style="border: 2px solid #000; border-collapse: collapse;">`;
+                        
+                        // Header Row 1
+                        html += `<tr><td colspan="${titleColspan}" class="report-header-title" style="background-color: #bfbfbf; border: 2px solid #000; font-size: 18px; padding: 10px; font-weight: bold;">${tableTitle}</td></tr>`;
+                        
+                        // Header Row 2 (Days)
+                        html += `<tr style="background-color: #d9d9d9;">`;
+                        html += `<td rowspan="2" colspan="3" style="width:20%; border: 1px solid #000; font-weight: bold;">${firstColHeader}</td>`;
+                        
+                        for (let i = 0; i < rangeDates.length; i++) { 
+                            let d = rangeDates[i];
+                            let isWeekend = d.getDay() === 0 || d.getDay() === 6; // 0 is Sunday, 6 is Saturday
+                            let bg = isWeekend ? 'background-color: #bfbfbf;' : ''; 
+                            html += `<td style="width:7%; border: 1px solid #000; font-weight: bold; ${bg}">${dayNames[d.getDay()]}</td>`; 
+                        }
+                        
+                        html += `<td rowspan="2" style="width:9%; border: 1px solid #000; font-weight: bold; background-color: #d9d9d9;">Total working hours</td>`;
+                        html += `<td rowspan="2" style="width:10%; border: 1px solid #000; font-weight: bold;">Working area</td>`;
+                        html += `<td rowspan="2" style="width:12%; border: 1px solid #000; font-weight: bold;">Note for Extra hours</td></tr>`;
+                        
+                        // Header Row 3 (Dates)
+                        html += `<tr style="background-color: #d9d9d9;">`;
+                        for (let i = 0; i < rangeDates.length; i++) {
+                            let d = rangeDates[i];
+                            let isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                            let bg = isWeekend ? 'background-color: #bfbfbf;' : '';
+                            let dStr = d.toLocaleDateString('en-GB', {day: 'numeric', month: 'short', year: 'numeric'}).replace(/ /g, '-');
+                            html += `<td style="border: 1px solid #000; ${bg}">${dStr}</td>`;
+                        }
+                        html += `</tr>`;
+
+                        let deptTotalMins = 0;
+
+                        groups[agency][dept].forEach(emp => {
+                            let empTotalMins = 0;
+                            let rowIn = "", rowOut = "", rowBreak = "", rowTotal = "";
+                            let isAgency = emp.type === "Agency";
+                            let displayAgencyCol = isAgency ? (emp.agencyName || "Agency") : "Signifi";
+                            
+                            for (let i = 0; i < rangeDates.length; i++) {
+                                let d = rangeDates[i];
+                                let dateStr = d.toISOString().split('T')[0];
+                                let dayData = (shiftData[emp.id] && shiftData[emp.id][dateStr]) ? shiftData[emp.id][dateStr] : null;
+                                
+                                let isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                                let bg = isWeekend ? 'background-color: #bfbfbf;' : 'background-color: #ffffff;';
+                                let bgTotalRow = isWeekend ? 'background-color: #bfbfbf;' : 'background-color: #e6e6e6;';
+                                
+                                let tIn = "0:00", tOut = "0:00", tBreak = "<span style='color:red;'>0:00</span>", tTotal = "0:00";
+                                
+                                if (dayData && dayData.in) {
+                                    tIn = dayData.in.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
+                                    if (dayData.out) {
+                                        tOut = dayData.out.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
+                                        let diffMins = Math.floor((dayData.out - dayData.in) / 60000);
+                                        let breakMins = (isAgency && diffMins >= 240) ? 45 : 0;
+                                        
+                                        let netMins = Math.max(0, diffMins - breakMins);
+                                        empTotalMins += netMins;
+                                        deptTotalMins += netMins;
+                                        
+                                        tBreak = breakMins === 45 ? "<span style='color:red;'>0:45</span>" : "<span style='color:red;'>0:00</span>";
+                                        tTotal = `${Math.floor(netMins / 60)}:${(netMins % 60).toString().padStart(2, '0')}`;
+                                    } else { tOut = "Missed"; }
+                                }
+                                
+                                rowIn += `<td style="border: 1px solid #000; ${bg}">${tIn}</td>`;
+                                rowOut += `<td style="border: 1px solid #000; ${bg}">${tOut}</td>`;
+                                rowBreak += `<td class="row-break" style="border: 1px solid #000; ${bg}">${tBreak}</td>`;
+                                rowTotal += `<td style="font-weight:bold; border: 1px solid #000; ${bgTotalRow}">${tTotal}</td>`;
+                            }
+
+                            let fmtEmpTotal = `${Math.floor(empTotalMins / 60)}:${(empTotalMins % 60).toString().padStart(2, '0')}`;
+
+                            html += `<tr>`;
+                            html += `<td rowspan="4" style="width:10%; border: 1px solid #000; background-color: #ffffff;">${displayAgencyCol}</td>`;
+                            html += `<td rowspan="4" style="width:10%; font-weight:bold; border: 1px solid #000; background-color: #ffffff;">${emp.name}</td>`;
+                            html += `<td style="border: 1px solid #000; background-color: #ffffff;">In</td>${rowIn}`;
+                            
+                            html += `<td rowspan="4" style="font-weight:bold; font-size: 14px; border: 1px solid #000; vertical-align: middle; background-color: #ffffff;">${fmtEmpTotal}</td>`;
+                            html += `<td rowspan="4" class="text-green" style="border: 1px solid #000; vertical-align: middle; background-color: #ffffff;">${dept}</td>`;
+                            
+                            html += `<td rowspan="4" style="border: 1px solid #000; vertical-align: middle; background-color: #ffffff; padding: 0;">
+                                <input type="text" value="Regular ${dept} Projects" class="note-input" style="width: 100%; height: 100%; min-height: 50px; border: none; text-align: center; background: transparent; font-family: inherit; font-size: inherit;">
+                            </td></tr>`;
+                            
+                            html += `<tr><td style="border: 1px solid #000; background-color: #ffffff;">Out</td>${rowOut}</tr>`;
+                            html += `<tr><td style="border: 1px solid #000; background-color: #ffffff;">Break</td>${rowBreak}</tr>`;
+                            html += `<tr style="background-color: #e6e6e6;"><td style="border: 1px solid #000; font-weight:bold;">Total</td>${rowTotal}</tr>`;
+                        });
+                        
+                        let fmtDeptTotal = `${Math.floor(deptTotalMins / 60)}:${(deptTotalMins % 60).toString().padStart(2, '0')}`;
+                        
+                        // Total hours row span math: 3 cols (left side) + rangeDates.length
+                        let totalRowLeftSpan = 3 + rangeDates.length;
+                        
+                        html += `<tr class="totals-row" style="background-color: #a6a6a6;"><td colspan="${totalRowLeftSpan}" style="border: 2px solid #000; font-weight:bold;">Total hours</td><td class="text-green" style="border: 2px solid #000; font-weight:bold;">${fmtDeptTotal}</td><td colspan="2" style="border: 2px solid #000;"></td></tr></table><br><br>`;
+                    }
+                }
+                
+                container.innerHTML = html || "<p>No shifts recorded for the selected date range in the selected category.</p>";
+            } catch(e) {
+                container.innerHTML = "<p>Error loading data. Is the database connected?</p>";
+                console.error(e);
+            }
+        }
+
+        function exportReportToExcel() {
+            const container = document.getElementById('report-container');
+            if (container.innerHTML.includes("Loading") || container.innerHTML.includes("No shifts") || container.innerHTML.includes("Error")) return;
+            
+            const inputs = container.querySelectorAll('.note-input');
+            inputs.forEach(input => {
+                input.setAttribute('value', input.value); 
+            });
+
+            const template = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>table { border-collapse: collapse; font-family: Calibri, sans-serif; text-align: center; } th, td { border: 1px solid #000000; padding: 4px; } .weekend-col { background-color: #a6a6a6; } .text-green { color: green; font-weight: bold; } .row-break { color: red; } .totals-row { background-color: #a6a6a6; font-weight: bold; }</style></head><body>${container.innerHTML}</body></html>`;
+            
+            const blob = new Blob([template], { type: 'application/vnd.ms-excel' });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            
+            // Name the file based on the date range
+            const startD = document.getElementById('report-start').value;
+            const endD = document.getElementById('report-end').value;
+            link.download = `Timesheet_${startD}_to_${endD}.xls`;
+            
+            link.click();
+        }
+    </script>
+</body>
+</html>
