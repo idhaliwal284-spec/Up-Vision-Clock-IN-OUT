@@ -17,6 +17,10 @@
         .top-left-title { position: absolute; top: 25px; left: 30px; font-size: 1.8rem; color: #333; margin: 0; font-weight: bold; z-index: 10; }
         .top-center-logo { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); max-width: 250px; max-height: 80px; object-fit: contain; z-index: 10; }
         .bottom-right-credit { position: absolute; bottom: 15px; right: 30px; font-size: 1rem; color: #777; font-style: italic; z-index: 10; }
+        
+        /* Dashboard DB Status Indicator */
+        #connection-status { position: absolute; top: 35px; right: 175px; width: 16px; height: 16px; border-radius: 50%; background-color: #ffc107; z-index: 10; box-shadow: 0 0 5px rgba(0,0,0,0.2); border: 2px solid #fff; transition: 0.3s; }
+        
         #admin-btn { position: absolute; top: 25px; right: 30px; background: #e9ecef; border: 1px solid #ccc; color: #333; cursor: pointer; font-size: 1rem; padding: 8px 16px; border-radius: 4px; font-weight: bold; transition: 0.2s; z-index: 10; }
         #admin-btn:hover { background: #d3d9df; }
         
@@ -31,7 +35,7 @@
         .submit-btn { padding: 15px 30px; font-size: 1.5rem; background-color: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
         .submit-btn:hover { background-color: #0056b3; }
 
-        .status-message { font-size: 1.5rem; padding: 15px; border-radius: 8px; margin-top: 15px; display: none; }
+        .status-message { font-size: 1.2rem; padding: 15px; border-radius: 8px; margin-top: 15px; display: none; word-wrap: break-word; }
         .success { background-color: #d4edda; color: #155724; border: 2px solid #c3e6cb; }
         .error { background-color: #f8d7da; color: #721c24; border: 2px solid #f5c6cb; }
 
@@ -89,6 +93,9 @@
     <!-- KIOSK BACKGROUND CORNER ELEMENTS -->
     <h1 class="top-left-title">Up Vision Clock IN & OUT</h1>
     <img src="image_1fb393.png" alt="Signifi Solutions Inc. Logo" class="top-center-logo" onerror="this.onerror=null; this.alt='Logo missing. Place image_1fb393.png in the same folder as index.html.'; this.style.border='2px dashed #ccc'; this.style.padding='10px';">
+    
+    <!-- Status Indicator -->
+    <div id="connection-status" title="Checking database connection..."></div>
     <button id="admin-btn" onclick="showPinModal()">Admin Access</button>
     <div class="bottom-right-credit">Created by Ishanjeet Dhaliwal</div>
 
@@ -264,19 +271,28 @@
 
     <script>
         // === 1. FIREBASE SETUP ===
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
-const firebaseConfig = {
-  apiKey: "AIzaSyDTjEJ3N_l1znPppygGTgGeClIrt092A7Y",
-  authDomain: "in-out-83253.firebaseapp.com",
-  projectId: "in-out-83253",
-  storageBucket: "in-out-83253.firebasestorage.app",
-  messagingSenderId: "782560619039",
-  appId: "1:782560619039:web:36b15fbf8ffc0e86b1c32a",
-  measurementId: "G-ZBQGRLRYV8"
-};
+        const firebaseConfig = {
+            apiKey: "AIzaSyDTjEJ3N_l1znPppygGTgGeClIrt092A7Y",
+            authDomain: "in-out-83253.firebaseapp.com",
+            projectId: "in-out-83253",
+            storageBucket: "in-out-83253.firebasestorage.app",
+            messagingSenderId: "782560619039",
+            appId: "1:782560619039:web:36b15fbf8ffc0e86b1c32a",
+            measurementId: "G-ZBQGRLRYV8"
+        };
         
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
+
+        // Database Connection Indicator Logic
+        const statusCircle = document.getElementById('connection-status');
+        db.collection('employees').limit(1).get().then(() => {
+            statusCircle.style.backgroundColor = '#28a745'; // Green
+            statusCircle.title = "Database Connected";
+        }).catch((err) => {
+            statusCircle.style.backgroundColor = '#dc3545'; // Red
+            statusCircle.title = "Database Error: " + err.message;
+        });
 
         // === 2. KIOSK CLOCK & INPUT LOGIC ===
         setInterval(() => {
@@ -325,16 +341,31 @@ const firebaseConfig = {
                 pendingEmpData = empDoc.data();
                 pendingBadgeId = badgeId;
                 
+                // BYPASSING FIREBASE INDEX REQUIREMENT
+                // We fetch all shifts for the employee, and find the latest one in Javascript.
                 const shiftQuery = await db.collection('shifts')
                     .where('employeeId', '==', badgeId)
-                    .orderBy('timestamp', 'desc')
-                    .limit(1)
                     .get();
 
                 pendingAction = 'IN';
                 if (!shiftQuery.empty) {
-                    const lastPunch = shiftQuery.docs[0].data();
-                    if (lastPunch.action === 'IN') pendingAction = 'OUT';
+                    let latestTime = 0;
+                    let lastPunchDoc = null;
+                    
+                    shiftQuery.docs.forEach(doc => {
+                        const data = doc.data();
+                        if (data.timestamp) {
+                            const timeMs = data.timestamp.toMillis();
+                            if (timeMs > latestTime) {
+                                latestTime = timeMs;
+                                lastPunchDoc = data;
+                            }
+                        }
+                    });
+
+                    if (lastPunchDoc && lastPunchDoc.action === 'IN') {
+                        pendingAction = 'OUT';
+                    }
                 }
 
                 statusDiv.style.display = 'none'; 
@@ -347,8 +378,8 @@ const firebaseConfig = {
             } catch (err) {
                 console.error(err);
                 statusDiv.className = 'status-message error';
-                statusDiv.innerText = 'Network Error. Is Firebase configured?';
-                setTimeout(() => statusDiv.style.display = 'none', 3000);
+                statusDiv.innerText = 'Database Error: ' + err.message;
+                setTimeout(() => statusDiv.style.display = 'none', 5000);
             }
         }
 
@@ -375,7 +406,9 @@ const firebaseConfig = {
 
             } catch (err) {
                 console.error(err);
-                alert("Error saving punch to database. Check Firebase config.");
+                statusDiv.style.display = 'block';
+                statusDiv.className = 'status-message error';
+                statusDiv.innerText = "Error saving punch. " + err.message;
             }
         }
 
@@ -679,7 +712,7 @@ const firebaseConfig = {
             }
         }
 
-        // === 6. CUSTOM RANGE TIMESHEET REPORT (DYNAMIC GROUPS) ===
+        // === 6. CUSTOM RANGE TIMESHEET REPORT ===
         let currentReportFilter = 'All';
 
         function setReportFilter(filterType) {
@@ -706,7 +739,6 @@ const firebaseConfig = {
                 return;
             }
 
-            // Calculate range of dates
             const rangeDates = [];
             let currentD = new Date(startD);
             while (currentD <= endD) {
@@ -791,21 +823,18 @@ const firebaseConfig = {
                         let tableTitle = `${dept} - Timesheet${agency === 'Signifi' ? '' : ' - ' + agency}`;
                         let firstColHeader = `${dept} - timesheet at Tech Avn.`;
                         
-                        // Total columns: 1 (Agency) + 1 (Name) + 1 (In/Out) + rangeDates.length + 1 (Total Hrs) + 1 (Working Area) + 1 (Note) = rangeDates.length + 6
                         let titleColspan = rangeDates.length + 6;
 
                         html += `<table class="report-table" style="border: 2px solid #000; border-collapse: collapse;">`;
                         
-                        // Header Row 1
                         html += `<tr><td colspan="${titleColspan}" class="report-header-title" style="background-color: #bfbfbf; border: 2px solid #000; font-size: 18px; padding: 10px; font-weight: bold;">${tableTitle}</td></tr>`;
                         
-                        // Header Row 2 (Days)
                         html += `<tr style="background-color: #d9d9d9;">`;
                         html += `<td rowspan="2" colspan="3" style="width:20%; border: 1px solid #000; font-weight: bold;">${firstColHeader}</td>`;
                         
                         for (let i = 0; i < rangeDates.length; i++) { 
                             let d = rangeDates[i];
-                            let isWeekend = d.getDay() === 0 || d.getDay() === 6; // 0 is Sunday, 6 is Saturday
+                            let isWeekend = d.getDay() === 0 || d.getDay() === 6;
                             let bg = isWeekend ? 'background-color: #bfbfbf;' : ''; 
                             html += `<td style="width:7%; border: 1px solid #000; font-weight: bold; ${bg}">${dayNames[d.getDay()]}</td>`; 
                         }
@@ -814,7 +843,6 @@ const firebaseConfig = {
                         html += `<td rowspan="2" style="width:10%; border: 1px solid #000; font-weight: bold;">Working area</td>`;
                         html += `<td rowspan="2" style="width:12%; border: 1px solid #000; font-weight: bold;">Note for Extra hours</td></tr>`;
                         
-                        // Header Row 3 (Dates)
                         html += `<tr style="background-color: #d9d9d9;">`;
                         for (let i = 0; i < rangeDates.length; i++) {
                             let d = rangeDates[i];
@@ -887,7 +915,6 @@ const firebaseConfig = {
                         
                         let fmtDeptTotal = `${Math.floor(deptTotalMins / 60)}:${(deptTotalMins % 60).toString().padStart(2, '0')}`;
                         
-                        // Total hours row span math: 3 cols (left side) + rangeDates.length
                         let totalRowLeftSpan = 3 + rangeDates.length;
                         
                         html += `<tr class="totals-row" style="background-color: #a6a6a6;"><td colspan="${totalRowLeftSpan}" style="border: 2px solid #000; font-weight:bold;">Total hours</td><td class="text-green" style="border: 2px solid #000; font-weight:bold;">${fmtDeptTotal}</td><td colspan="2" style="border: 2px solid #000;"></td></tr></table><br><br>`;
@@ -916,7 +943,6 @@ const firebaseConfig = {
             const link = document.createElement("a");
             link.href = URL.createObjectURL(blob);
             
-            // Name the file based on the date range
             const startD = document.getElementById('report-start').value;
             const endD = document.getElementById('report-end').value;
             link.download = `Timesheet_${startD}_to_${endD}.xls`;
