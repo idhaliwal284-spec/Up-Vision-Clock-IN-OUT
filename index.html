@@ -341,7 +341,6 @@
                 pendingEmpData = empDoc.data();
                 pendingBadgeId = badgeId;
                 
-                // BYPASSING FIREBASE INDEX REQUIREMENT
                 const shiftQuery = await db.collection('shifts')
                     .where('employeeId', '==', badgeId)
                     .get();
@@ -895,7 +894,11 @@
                                         
                                         // Calculate total hours using the rounded values
                                         let diffMins = Math.floor((roundedOut - roundedIn) / 60000);
-                                        let breakMins = (isAgency && diffMins >= 240) ? 45 : 0;
+                                        
+                                        // LUNCH BREAK DEDUCTION RULE: Only if out punch is strictly after 1:00 PM (13:00)
+                                        let onePM = new Date(roundedOut);
+                                        onePM.setHours(13, 0, 0, 0);
+                                        let breakMins = (isAgency && roundedOut > onePM) ? 45 : 0;
                                         
                                         let netMins = Math.max(0, diffMins - breakMins);
                                         empTotalMins += netMins;
