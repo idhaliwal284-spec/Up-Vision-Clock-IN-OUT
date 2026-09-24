@@ -342,7 +342,6 @@
                 pendingBadgeId = badgeId;
                 
                 // BYPASSING FIREBASE INDEX REQUIREMENT
-                // We fetch all shifts for the employee, and find the latest one in Javascript.
                 const shiftQuery = await db.collection('shifts')
                     .where('employeeId', '==', badgeId)
                     .get();
@@ -873,10 +872,29 @@
                                 let tIn = "0:00", tOut = "0:00", tBreak = "<span style='color:red;'>0:00</span>", tTotal = "0:00";
                                 
                                 if (dayData && dayData.in) {
-                                    tIn = dayData.in.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
+                                    // SHIFT GRACE PERIOD ROUNDING FOR PUNCH IN
+                                    let roundedIn = new Date(dayData.in);
+                                    let inH = roundedIn.getHours();
+                                    let inM = roundedIn.getMinutes();
+                                    if ((inH === 8 && inM >= 30) || (inH === 9 && inM <= 14)) {
+                                        roundedIn.setHours(9, 0, 0, 0);
+                                    }
+
+                                    tIn = roundedIn.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
+                                    
                                     if (dayData.out) {
-                                        tOut = dayData.out.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
-                                        let diffMins = Math.floor((dayData.out - dayData.in) / 60000);
+                                        // SHIFT GRACE PERIOD ROUNDING FOR PUNCH OUT
+                                        let roundedOut = new Date(dayData.out);
+                                        let outH = roundedOut.getHours();
+                                        let outM = roundedOut.getMinutes();
+                                        if ((outH === 16 && outM >= 50) || (outH === 17 && outM <= 14)) {
+                                            roundedOut.setHours(17, 0, 0, 0);
+                                        }
+
+                                        tOut = roundedOut.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
+                                        
+                                        // Calculate total hours using the rounded values
+                                        let diffMins = Math.floor((roundedOut - roundedIn) / 60000);
                                         let breakMins = (isAgency && diffMins >= 240) ? 45 : 0;
                                         
                                         let netMins = Math.max(0, diffMins - breakMins);
