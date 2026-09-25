@@ -1081,7 +1081,7 @@
                         }
                         overrideMap[docId][field] = val;
 
-                        // Auto-Deduct Logic for numbered tracking (Agencies)
+                        // Auto-Deduct Logic for numbered tracking
                         if (field === 'total') {
                             let vMatch = val.match(/Vacation-\d{4}-(\d+)/i);
                             if (vMatch) {
@@ -1304,23 +1304,23 @@
                             let datalistId = `leave_${emp.id}`;
                             let datalistHtml = `<datalist id="${datalistId}">`;
                             
-                            if (emp.type === 'Signifi') {
-                                datalistHtml += `<option value="Vacation"></option>`;
-                                datalistHtml += `<option value="Sick"></option>`;
-                                datalistHtml += `<option value="Off"></option>`;
-                            } else {
-                                // Keep original numbered tracking for Agency temps if needed
-                                let vUsed = emp.vacationUsed || 0;
-                                let vTotal = emp.vacationTotal || 0;
-                                for(let v = vUsed + 1; v <= vTotal; v++) {
-                                    datalistHtml += `<option value="Vacation-${reportYear}-${v}"></option>`;
-                                }
-                                let sUsed = emp.sickUsed || 0;
-                                let sTotal = emp.sickTotal || 0;
-                                for(let s = sUsed + 1; s <= sTotal; s++) {
-                                    datalistHtml += `<option value="Sick-${reportYear}-${s}"></option>`;
-                                }
+                            let vUsed = emp.vacationUsed || 0;
+                            let vTotal = emp.vacationTotal || 0;
+                            for(let v = vUsed + 1; v <= vTotal; v++) {
+                                datalistHtml += `<option value="Vacation-${reportYear}-${v}"></option>`;
                             }
+                            
+                            let sUsed = emp.sickUsed || 0;
+                            let sTotal = emp.sickTotal || 0;
+                            for(let s = sUsed + 1; s <= sTotal; s++) {
+                                datalistHtml += `<option value="Sick-${reportYear}-${s}"></option>`;
+                            }
+                            
+                            // Optionally include an untracked 'Off' for Signifi employees
+                            if (emp.type === 'Signifi') {
+                                datalistHtml += `<option value="Off"></option>`;
+                            }
+                            
                             datalistHtml += `</datalist>`;
                             
                             let empTotalMins = 0;
