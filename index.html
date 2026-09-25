@@ -194,8 +194,8 @@
                 </div>
             </div>
 
-            <!-- Vacation and Sick Tracking -->
-            <div style="display: flex; gap: 10px;">
+            <!-- Vacation and Sick Tracking (Signifi Only) -->
+            <div id="vacation-tracking-row" style="display: flex; gap: 10px;">
                 <div class="form-group" style="width: 50%;">
                     <label>Vacation Days / Year</label>
                     <input type="number" id="emp-vacation-total" value="10">
@@ -205,7 +205,7 @@
                     <input type="number" id="emp-vacation-used" value="0">
                 </div>
             </div>
-            <div style="display: flex; gap: 10px;">
+            <div id="sick-tracking-row" style="display: flex; gap: 10px;">
                 <div class="form-group" style="width: 50%;">
                     <label>Sick Days / Year</label>
                     <input type="number" id="emp-sick-total" value="5">
@@ -367,9 +367,10 @@
             const breakVal = document.getElementById(`break_${gIdx}_${eIdx}_${colIdx}`).value.trim();
             const totalInput = document.getElementById(`total_${gIdx}_${eIdx}_${colIdx}`);
             const empId = totalInput.dataset.empid;
+            const empType = totalInput.dataset.emptype;
 
-            // Logic to Show/Hide Vacation Dropdown Arrow based on whether the cell is empty
-            if (!inVal && !outVal) {
+            // Logic to Show/Hide Vacation Dropdown Arrow (SIGNIFI ONLY)
+            if (!inVal && !outVal && empType === 'Signifi') {
                 totalInput.setAttribute('list', `leave_${empId}`);
             } else {
                 totalInput.removeAttribute('list');
@@ -505,7 +506,6 @@
                 pendingEmpData = empDoc.data();
                 pendingBadgeId = badgeId;
                 
-                // BYPASSING FIREBASE INDEX REQUIREMENT BY PULLING AND FILTERING IN JS
                 const shiftQuery = await db.collection('shifts').where('employeeId', '==', badgeId).get();
 
                 pendingAction = 'IN';
@@ -779,8 +779,19 @@
         }
 
         function toggleTypeCustom() {
-            document.getElementById('emp-type-custom').style.display = 
-                document.getElementById('emp-type-select').value === 'custom' ? 'block' : 'none';
+            const selectVal = document.getElementById('emp-type-select').value;
+            document.getElementById('emp-type-custom').style.display = selectVal === 'custom' ? 'block' : 'none';
+            
+            // Show/Hide vacation inputs based on Signifi status
+            const vacRow = document.getElementById('vacation-tracking-row');
+            const sickRow = document.getElementById('sick-tracking-row');
+            if (selectVal === 'Signifi') {
+                vacRow.style.display = 'flex';
+                sickRow.style.display = 'flex';
+            } else {
+                vacRow.style.display = 'none';
+                sickRow.style.display = 'none';
+            }
         }
 
         // === 4. EMPLOYEE MANAGEMENT DIRECTORY ===
@@ -829,16 +840,21 @@
                     const safeEmpJson = JSON.stringify(emp).replace(/"/g, '&quot;');
                     let displayAgency = (emp.type === 'Agency') ? (emp.agencyName || 'Unnamed Agency') : '-';
                     
-                    let vacRem = (emp.vacationTotal || 0) - (emp.vacationUsed || 0);
-                    let sickRem = (emp.sickTotal || 0) - (emp.sickUsed || 0);
+                    let vacRemDisplay = "-";
+                    let sickRemDisplay = "-";
+                    
+                    if (emp.type === 'Signifi') {
+                        vacRemDisplay = `${(emp.vacationTotal || 0) - (emp.vacationUsed || 0)} / ${emp.vacationTotal || 0}`;
+                        sickRemDisplay = `${(emp.sickTotal || 0) - (emp.sickUsed || 0)} / ${emp.sickTotal || 0}`;
+                    }
 
                     return `
                         <tr>
                             <td><strong>${emp.id}</strong></td>
                             <td>${emp.name}</td>
                             <td>${emp.department} <br><small style="color:gray">${displayAgency}</small></td>
-                            <td>${vacRem} / ${emp.vacationTotal || 0}</td>
-                            <td>${sickRem} / ${emp.sickTotal || 0}</td>
+                            <td>${vacRemDisplay}</td>
+                            <td>${sickRemDisplay}</td>
                             <td style="text-align:center;">
                                 <button class="small-btn btn-print" onclick="printBadge('${emp.id}', '${emp.name}', '${emp.department}')">Print</button>
                                 <button class="small-btn btn-edit" onclick="openEmployeeModal(${safeEmpJson})">Edit</button>
@@ -892,7 +908,7 @@
             document.getElementById('emp-sick-used').value = '0';
             
             toggleDeptCustom();
-            toggleTypeCustom();
+            toggleTypeCustom(); // Triggers hiding/showing tracking row by default
 
             if (empData) {
                 title.innerText = "Edit Employee Information";
@@ -1073,6 +1089,7 @@
                     const empId = input.dataset.empid;
                     const dateStr = input.dataset.date;
                     const field = input.dataset.field;
+                    const empType = input.dataset.emptype;
                     let val = input.value.trim();
                     
                     if (empId && dateStr && field) {
@@ -1082,8 +1099,8 @@
                         }
                         overrideMap[docId][field] = val;
 
-                        // Auto-Deduct Logic
-                        if (field === 'total') {
+                        // Auto-Deduct Logic (Signifi Only)
+                        if (field === 'total' && empType === 'Signifi') {
                             let vMatch = val.match(/Vacation-\d{4}-(\d+)/i);
                             if (vMatch) {
                                 let num = parseInt(vMatch[1]);
@@ -1181,7 +1198,6 @@
             container.innerHTML = "<p>Loading timesheets...</p>";
 
             try {
-                // BYPASS FIREBASE INDEXING ERRORS: PULL ALL DOCS DIRECTLY AND FILTER IN JAVASCRIPT
                 const empsSnapshot = await db.collection("employees").get();
                 const employees = {};
                 const reportAgencies = new Set();
@@ -1194,14 +1210,11 @@
                     }
                 });
 
-                const overridesSnap = await db.collection("timesheet_overrides").get();
+                const overridesSnap = await db.collection("timesheet_overrides")
+                    .where("date", ">=", startStr)
+                    .where("date", "<=", endStr).get();
                 const overridesData = {};
-                overridesSnap.forEach(doc => {
-                    const data = doc.data();
-                    if (data.date >= startStr && data.date <= endStr) {
-                        overridesData[doc.id] = data;
-                    }
-                });
+                overridesSnap.forEach(doc => overridesData[doc.id] = doc.data());
 
                 const notesSnap = await db.collection("timesheet_notes").get();
                 const notesData = {};
@@ -1215,33 +1228,28 @@
                 });
                 filterTabsContainer.innerHTML = tabsHtml;
 
-                const shiftsSnap = await db.collection("shifts").get();
+                const shiftsSnap = await db.collection("shifts")
+                    .where("timestamp", ">=", startD)
+                    .where("timestamp", "<=", queryEndD)
+                    .orderBy("timestamp", "asc").get();
                 
                 const shiftData = {};
                 shiftsSnap.forEach(doc => {
                     const s = doc.data();
-                    if (!s.timestamp) return;
-                    
                     const d = s.timestamp.toDate(); 
                     
-                    if (d >= startD && d <= queryEndD) {
-                        const year = d.getFullYear();
-                        const month = String(d.getMonth() + 1).padStart(2, '0');
-                        const day = String(d.getDate()).padStart(2, '0');
-                        const dateStr = `${year}-${month}-${day}`;
-                        
-                        if (!shiftData[s.employeeId]) shiftData[s.employeeId] = {};
-                        if (!shiftData[s.employeeId][dateStr]) shiftData[s.employeeId][dateStr] = {};
-                        
-                        if (s.action === "IN") {
-                            if (!shiftData[s.employeeId][dateStr].in || d < shiftData[s.employeeId][dateStr].in) {
-                                shiftData[s.employeeId][dateStr].in = d;
-                            }
-                        } else if (s.action === "OUT") {
-                            if (!shiftData[s.employeeId][dateStr].out || d > shiftData[s.employeeId][dateStr].out) {
-                                shiftData[s.employeeId][dateStr].out = d;
-                            }
-                        }
+                    const year = d.getFullYear();
+                    const month = String(d.getMonth() + 1).padStart(2, '0');
+                    const day = String(d.getDate()).padStart(2, '0');
+                    const dateStr = `${year}-${month}-${day}`;
+                    
+                    if (!shiftData[s.employeeId]) shiftData[s.employeeId] = {};
+                    if (!shiftData[s.employeeId][dateStr]) shiftData[s.employeeId][dateStr] = {};
+                    
+                    if (s.action === "IN" && !shiftData[s.employeeId][dateStr].in) {
+                        shiftData[s.employeeId][dateStr].in = d;
+                    } else if (s.action === "OUT") {
+                        shiftData[s.employeeId][dateStr].out = d;
                     }
                 });
 
@@ -1309,30 +1317,34 @@
                         groups[agency][dept].forEach(emp => {
                             eIdx++;
                             let empStartRow = excelRow;
+                            let isSignifi = emp.type === "Signifi";
                             
                             let datalistId = `leave_${emp.id}`;
-                            let datalistHtml = `<datalist id="${datalistId}">`;
+                            let datalistHtml = "";
                             let vUsed = emp.vacationUsed || 0;
-                            let vTotal = emp.vacationTotal || 0;
-                            for(let v = vUsed + 1; v <= vTotal; v++) {
-                                datalistHtml += `<option value="Vacation-${reportYear}-${v}"></option>`;
-                            }
                             let sUsed = emp.sickUsed || 0;
-                            let sTotal = emp.sickTotal || 0;
-                            for(let s = sUsed + 1; s <= sTotal; s++) {
-                                datalistHtml += `<option value="Sick-${reportYear}-${s}"></option>`;
+                            
+                            // Only build the dropdown if it is a Signifi employee
+                            if (isSignifi) {
+                                datalistHtml = `<datalist id="${datalistId}">`;
+                                let vTotal = emp.vacationTotal || 0;
+                                for(let v = vUsed + 1; v <= vTotal; v++) {
+                                    datalistHtml += `<option value="Vacation-${reportYear}-${v}"></option>`;
+                                }
+                                let sTotal = emp.sickTotal || 0;
+                                for(let s = sUsed + 1; s <= sTotal; s++) {
+                                    datalistHtml += `<option value="Sick-${reportYear}-${s}"></option>`;
+                                }
+                                datalistHtml += `<option value="Off"></option>`;
+                                datalistHtml += `</datalist>`;
                             }
-                            datalistHtml += `<option value="Off"></option>`;
-                            datalistHtml += `</datalist>`;
                             
                             let empTotalMins = 0;
                             let rowIn = "", rowOut = "", rowBreak = "", rowTotal = "";
-                            let isAgency = emp.type === "Agency";
-                            let displayAgencyCol = isAgency ? (emp.agencyName || "Agency") : "Signifi";
+                            let displayAgencyCol = !isSignifi ? (emp.agencyName || "Agency") : "Signifi";
                             
                             for (let i = 0; i < rangeDates.length; i++) {
                                 let d = rangeDates[i];
-                                
                                 const year = d.getFullYear();
                                 const month = String(d.getMonth() + 1).padStart(2, '0');
                                 const day = String(d.getDate()).padStart(2, '0');
@@ -1365,7 +1377,7 @@
                                         let diffMins = Math.floor((roundedOut - roundedIn) / 60000);
                                         let onePM = new Date(roundedOut);
                                         onePM.setHours(13, 0, 0, 0);
-                                        tBreak = (isAgency && roundedOut > onePM) ? "0:45" : "";
+                                        tBreak = (!isSignifi && roundedOut > onePM) ? "0:45" : "";
                                     } else {
                                         tOut = "Missed";
                                     }
@@ -1399,7 +1411,8 @@
                                     tTotal = override.total;
                                 }
                                 
-                                let listAttr = (!tIn && !tOut) ? `list="${datalistId}"` : "";
+                                // Attach dynamic list if Signifi and fields are empty
+                                let listAttr = (!tIn && !tOut && isSignifi) ? `list="${datalistId}"` : "";
                                 
                                 let inId = `in_${gIdx}_${eIdx}_${i}`;
                                 let outId = `out_${gIdx}_${eIdx}_${i}`;
@@ -1415,7 +1428,7 @@
                                 rowIn += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${inId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="in" value="${tIn}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
                                 rowOut += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${outId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="out" value="${tOut}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
                                 rowBreak += `<td class="row-break" style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${breakId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="break" value="${tBreak}" class="time-input" style="color: red;" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
-                                rowTotal += `<td style="border: 1px solid #000; padding: 0; ${bgTotalRow}"><input type="text" ${listAttr} id="${totalId}" data-empid="${emp.id}" data-vacused="${vUsed}" data-sickused="${sUsed}" data-date="${dateStr}" data-field="total" data-formula="${excelFormula}" value="${tTotal}" class="time-input total-input" style="font-weight:bold; border:none; text-align:center; width:100%; background:transparent; color:inherit;" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
+                                rowTotal += `<td style="border: 1px solid #000; padding: 0; ${bgTotalRow}"><input type="text" ${listAttr} id="${totalId}" data-emptype="${emp.type}" data-empid="${emp.id}" data-vacused="${vUsed}" data-sickused="${sUsed}" data-date="${dateStr}" data-field="total" data-formula="${excelFormula}" value="${tTotal}" class="time-input total-input" style="font-weight:bold; border:none; text-align:center; width:100%; background:transparent; color:inherit;" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
                             }
 
                             let fmtEmpTotal = "";
