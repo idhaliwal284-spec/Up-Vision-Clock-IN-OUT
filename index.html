@@ -368,7 +368,7 @@
             const totalInput = document.getElementById(`total_${gIdx}_${eIdx}_${colIdx}`);
             const empId = totalInput.dataset.empid;
 
-            // Logic to Show/Hide Vacation Dropdown Arrow
+            // Logic to Show/Hide Vacation Dropdown Arrow based on whether the cell is empty
             if (!inVal && !outVal) {
                 totalInput.setAttribute('list', `leave_${empId}`);
             } else {
@@ -505,6 +505,7 @@
                 pendingEmpData = empDoc.data();
                 pendingBadgeId = badgeId;
                 
+                // BYPASSING FIREBASE INDEX REQUIREMENT BY PULLING AND FILTERING IN JS
                 const shiftQuery = await db.collection('shifts').where('employeeId', '==', badgeId).get();
 
                 pendingAction = 'IN';
@@ -1180,6 +1181,7 @@
             container.innerHTML = "<p>Loading timesheets...</p>";
 
             try {
+                // BYPASS FIREBASE INDEXING ERRORS: PULL ALL DOCS DIRECTLY AND FILTER IN JAVASCRIPT
                 const empsSnapshot = await db.collection("employees").get();
                 const employees = {};
                 const reportAgencies = new Set();
@@ -1192,11 +1194,14 @@
                     }
                 });
 
-                const overridesSnap = await db.collection("timesheet_overrides")
-                    .where("date", ">=", startStr)
-                    .where("date", "<=", endStr).get();
+                const overridesSnap = await db.collection("timesheet_overrides").get();
                 const overridesData = {};
-                overridesSnap.forEach(doc => overridesData[doc.id] = doc.data());
+                overridesSnap.forEach(doc => {
+                    const data = doc.data();
+                    if (data.date >= startStr && data.date <= endStr) {
+                        overridesData[doc.id] = data;
+                    }
+                });
 
                 const notesSnap = await db.collection("timesheet_notes").get();
                 const notesData = {};
@@ -1210,28 +1215,33 @@
                 });
                 filterTabsContainer.innerHTML = tabsHtml;
 
-                const shiftsSnap = await db.collection("shifts")
-                    .where("timestamp", ">=", startD)
-                    .where("timestamp", "<=", queryEndD)
-                    .orderBy("timestamp", "asc").get();
+                const shiftsSnap = await db.collection("shifts").get();
                 
                 const shiftData = {};
                 shiftsSnap.forEach(doc => {
                     const s = doc.data();
+                    if (!s.timestamp) return;
+                    
                     const d = s.timestamp.toDate(); 
                     
-                    const year = d.getFullYear();
-                    const month = String(d.getMonth() + 1).padStart(2, '0');
-                    const day = String(d.getDate()).padStart(2, '0');
-                    const dateStr = `${year}-${month}-${day}`;
-                    
-                    if (!shiftData[s.employeeId]) shiftData[s.employeeId] = {};
-                    if (!shiftData[s.employeeId][dateStr]) shiftData[s.employeeId][dateStr] = {};
-                    
-                    if (s.action === "IN" && !shiftData[s.employeeId][dateStr].in) {
-                        shiftData[s.employeeId][dateStr].in = d;
-                    } else if (s.action === "OUT") {
-                        shiftData[s.employeeId][dateStr].out = d;
+                    if (d >= startD && d <= queryEndD) {
+                        const year = d.getFullYear();
+                        const month = String(d.getMonth() + 1).padStart(2, '0');
+                        const day = String(d.getDate()).padStart(2, '0');
+                        const dateStr = `${year}-${month}-${day}`;
+                        
+                        if (!shiftData[s.employeeId]) shiftData[s.employeeId] = {};
+                        if (!shiftData[s.employeeId][dateStr]) shiftData[s.employeeId][dateStr] = {};
+                        
+                        if (s.action === "IN") {
+                            if (!shiftData[s.employeeId][dateStr].in || d < shiftData[s.employeeId][dateStr].in) {
+                                shiftData[s.employeeId][dateStr].in = d;
+                            }
+                        } else if (s.action === "OUT") {
+                            if (!shiftData[s.employeeId][dateStr].out || d > shiftData[s.employeeId][dateStr].out) {
+                                shiftData[s.employeeId][dateStr].out = d;
+                            }
+                        }
                     }
                 });
 
@@ -1322,6 +1332,7 @@
                             
                             for (let i = 0; i < rangeDates.length; i++) {
                                 let d = rangeDates[i];
+                                
                                 const year = d.getFullYear();
                                 const month = String(d.getMonth() + 1).padStart(2, '0');
                                 const day = String(d.getDate()).padStart(2, '0');
