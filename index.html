@@ -194,7 +194,7 @@
                 </div>
             </div>
 
-            <!-- Vacation and Sick Tracking -->
+            <!-- Vacation, Sick, and Paid Lieu Tracking -->
             <div style="display: flex; gap: 10px;">
                 <div class="form-group" style="width: 50%;">
                     <label>Vacation Days / Year</label>
@@ -213,6 +213,16 @@
                 <div class="form-group" style="width: 50%;">
                     <label>Sick Days Used</label>
                     <input type="number" id="emp-sick-used" value="0">
+                </div>
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <div class="form-group" style="width: 50%;">
+                    <label>Paid Lieu / Year</label>
+                    <input type="number" id="emp-lieu-total" value="0">
+                </div>
+                <div class="form-group" style="width: 50%;">
+                    <label>Paid Lieu Used</label>
+                    <input type="number" id="emp-lieu-used" value="0">
                 </div>
             </div>
 
@@ -278,11 +288,12 @@
                         <th>Dept / Agency</th>
                         <th>Vacation (Rem/Tot)</th>
                         <th>Sick (Rem/Tot)</th>
+                        <th>Lieu (Rem/Tot)</th>
                         <th style="text-align:center;">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="employee-list-body">
-                    <tr><td colspan="6" style="text-align:center;">Loading...</td></tr>
+                    <tr><td colspan="7" style="text-align:center;">Loading...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -394,8 +405,8 @@
             let newTotal = formatTime(netMins);
             let currentTotal = totalInput.value.trim().toLowerCase();
             
-            // Protect explicit text entries like Vacation, Sick, or Off from being zeroed out
-            if (newTotal === "" && (currentTotal.includes('vacation') || currentTotal.includes('sick') || currentTotal.includes('off'))) {
+            // Protect explicit text entries like Vacation, Sick, Paid Lieu, or Off from being zeroed out
+            if (newTotal === "" && (currentTotal.includes('vacation') || currentTotal.includes('sick') || currentTotal.includes('paid lieu') || currentTotal.includes('off'))) {
                 // Do nothing
             } else {
                 totalInput.value = newTotal;
@@ -407,7 +418,7 @@
                 let tVal = document.getElementById(`total_${gIdx}_${eIdx}_${i}`).value.trim().toLowerCase();
                 
                 // Signifi Paid Leave Logic (9 to 5 = 8 hours = 480 mins)
-                if (tVal.includes('vacation') || tVal.includes('sick')) {
+                if (tVal.includes('vacation') || tVal.includes('sick') || tVal.includes('paid lieu')) {
                     empTotal += 480; 
                 } else if (tVal.includes('off')) {
                     empTotal += 0;
@@ -794,14 +805,14 @@
             const tbody = document.getElementById('employee-list-body');
             const filterTabs = document.getElementById('dynamic-filter-tabs');
             
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">Loading...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">Loading...</td></tr>';
             
             try {
                 const snapshot = await db.collection('employees').orderBy('name').get();
                 tbody.innerHTML = '';
                 
                 if (snapshot.empty) {
-                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">No employees found. Add one above!</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">No employees found. Add one above!</td></tr>';
                     return;
                 }
 
@@ -830,6 +841,7 @@
                     
                     let vacRem = (emp.vacationTotal || 0) - (emp.vacationUsed || 0);
                     let sickRem = (emp.sickTotal || 0) - (emp.sickUsed || 0);
+                    let lieuRem = (emp.lieuTotal || 0) - (emp.lieuUsed || 0);
 
                     return `
                         <tr>
@@ -838,6 +850,7 @@
                             <td>${emp.department} <br><small style="color:gray">${displayAgency}</small></td>
                             <td>${vacRem} / ${emp.vacationTotal || 0}</td>
                             <td>${sickRem} / ${emp.sickTotal || 0}</td>
+                            <td>${lieuRem} / ${emp.lieuTotal || 0}</td>
                             <td style="text-align:center;">
                                 <button class="small-btn btn-print" onclick="printBadge('${emp.id}', '${emp.name}', '${emp.department}')">Print</button>
                                 <button class="small-btn btn-edit" onclick="openEmployeeModal(${safeEmpJson})">Edit</button>
@@ -863,12 +876,12 @@
                 });
 
                 if (filteredCount === 0) {
-                    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;">No employees found for this category.</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;">No employees found for this category.</td></tr>`;
                 }
 
             } catch(e) {
                 console.error(e);
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:red;">Database not connected. Check Firebase config.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:red;">Database not connected. Check Firebase config.</td></tr>';
             }
         }
 
@@ -889,6 +902,8 @@
             document.getElementById('emp-vacation-used').value = '0';
             document.getElementById('emp-sick-total').value = '5';
             document.getElementById('emp-sick-used').value = '0';
+            document.getElementById('emp-lieu-total').value = '0';
+            document.getElementById('emp-lieu-used').value = '0';
             
             toggleDeptCustom();
             toggleTypeCustom();
@@ -904,6 +919,8 @@
                 if (empData.vacationUsed !== undefined) document.getElementById('emp-vacation-used').value = empData.vacationUsed;
                 if (empData.sickTotal !== undefined) document.getElementById('emp-sick-total').value = empData.sickTotal;
                 if (empData.sickUsed !== undefined) document.getElementById('emp-sick-used').value = empData.sickUsed;
+                if (empData.lieuTotal !== undefined) document.getElementById('emp-lieu-total').value = empData.lieuTotal;
+                if (empData.lieuUsed !== undefined) document.getElementById('emp-lieu-used').value = empData.lieuUsed;
 
                 const predefinedDepts = ['Production', 'Inventory', 'Quality'];
                 if (predefinedDepts.includes(empData.department)) {
@@ -968,6 +985,8 @@
             let vacUsed = parseInt(document.getElementById('emp-vacation-used').value) || 0;
             let sickTot = parseInt(document.getElementById('emp-sick-total').value) || 0;
             let sickUsd = parseInt(document.getElementById('emp-sick-used').value) || 0;
+            let lieuTot = parseInt(document.getElementById('emp-lieu-total').value) || 0;
+            let lieuUsd = parseInt(document.getElementById('emp-lieu-used').value) || 0;
 
             const badgeId = requestedId ? requestedId : Math.floor(100000 + Math.random() * 900000).toString();
             const isNew = !originalId;
@@ -986,7 +1005,9 @@
                     vacationTotal: vacTotal,
                     vacationUsed: vacUsed,
                     sickTotal: sickTot,
-                    sickUsed: sickUsd
+                    sickUsed: sickUsd,
+                    lieuTotal: lieuTot,
+                    lieuUsed: lieuUsd
                 });
 
                 closeModal('employee-modal');
@@ -1102,6 +1123,17 @@
                                     if (!empUpdates[empId]) empUpdates[empId] = {};
                                     empUpdates[empId].sickUsed = num;
                                     input.dataset.sickused = num;
+                                }
+                            }
+
+                            let lMatch = val.match(/Paid Lieu-\d{4}-(\d+)/i);
+                            if (lMatch) {
+                                let num = parseInt(lMatch[1]);
+                                let currentDbLieuUsed = parseInt(input.dataset.lieuused) || 0;
+                                if (num > currentDbLieuUsed) {
+                                    if (!empUpdates[empId]) empUpdates[empId] = {};
+                                    empUpdates[empId].lieuUsed = num;
+                                    input.dataset.lieuused = num;
                                 }
                             }
                         }
@@ -1300,7 +1332,7 @@
                             eIdx++;
                             let empStartRow = excelRow;
                             
-                            // Smart Vacation / Sick / Off Datalist Builder
+                            // Smart Vacation / Sick / Paid Lieu / Off Datalist Builder
                             let datalistId = `leave_${emp.id}`;
                             let datalistHtml = `<datalist id="${datalistId}">`;
                             
@@ -1314,6 +1346,12 @@
                             let sTotal = emp.sickTotal || 0;
                             for(let s = sUsed + 1; s <= sTotal; s++) {
                                 datalistHtml += `<option value="Sick-${reportYear}-${s}"></option>`;
+                            }
+
+                            let lUsed = emp.lieuUsed || 0;
+                            let lTotal = emp.lieuTotal || 0;
+                            for(let l = lUsed + 1; l <= lTotal; l++) {
+                                datalistHtml += `<option value="Paid Lieu-${reportYear}-${l}"></option>`;
                             }
                             
                             // Optionally include an untracked 'Off' for Signifi employees
@@ -1412,7 +1450,7 @@
                                 rowIn += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${inId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="in" value="${tIn}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
                                 rowOut += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${outId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="out" value="${tOut}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
                                 rowBreak += `<td class="row-break" style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${breakId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="break" value="${tBreak}" class="time-input" style="color: red;" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
-                                rowTotal += `<td style="border: 1px solid #000; padding: 0; ${bgTotalRow}"><input type="text" list="${datalistId}" id="${totalId}" data-empid="${emp.id}" data-vacused="${emp.vacationUsed||0}" data-sickused="${emp.sickUsed||0}" data-date="${dateStr}" data-field="total" data-formula="${excelFormula}" value="${tTotal}" class="time-input total-input" style="font-weight:bold; border:none; text-align:center; width:100%; background:transparent; color:inherit;" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
+                                rowTotal += `<td style="border: 1px solid #000; padding: 0; ${bgTotalRow}"><input type="text" list="${datalistId}" id="${totalId}" data-empid="${emp.id}" data-vacused="${emp.vacationUsed||0}" data-sickused="${emp.sickUsed||0}" data-lieuused="${emp.lieuUsed||0}" data-date="${dateStr}" data-field="total" data-formula="${excelFormula}" value="${tTotal}" class="time-input total-input" style="font-weight:bold; border:none; text-align:center; width:100%; background:transparent; color:inherit;" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
                             }
 
                             let fmtEmpTotal = "";
@@ -1427,9 +1465,9 @@
                             
                             let empTotalFormula = `=SUM(${firstTotCell}:${lastTotCell})`;
                             
-                            // If Signifi, modify Excel formula to sum normal hours PLUS 8 hours per Vacation/Sick day
+                            // If Signifi, modify Excel formula to sum normal hours PLUS 8 hours per Vacation/Sick/Lieu day
                             if (emp.type === 'Signifi') {
-                                empTotalFormula = `=SUM(${firstTotCell}:${lastTotCell}) + (COUNTIF(${firstTotCell}:${lastTotCell}, "*Vacation*")*TIME(8,0,0)) + (COUNTIF(${firstTotCell}:${lastTotCell}, "*Sick*")*TIME(8,0,0))`;
+                                empTotalFormula = `=SUM(${firstTotCell}:${lastTotCell}) + (COUNTIF(${firstTotCell}:${lastTotCell}, "*Vacation*")*TIME(8,0,0)) + (COUNTIF(${firstTotCell}:${lastTotCell}, "*Sick*")*TIME(8,0,0)) + (COUNTIF(${firstTotCell}:${lastTotCell}, "*Paid Lieu*")*TIME(8,0,0))`;
                             }
                             
                             let totColLtr = getColLtr(3 + rangeDates.length);
@@ -1505,7 +1543,7 @@
                 const td = cloneInputs[i].parentNode;
                 
                 if (originalInputs[i].dataset.field === 'total') {
-                    if (val.toLowerCase().includes('vacation') || val.toLowerCase().includes('sick') || val.toLowerCase().includes('off')) {
+                    if (val.toLowerCase().includes('vacation') || val.toLowerCase().includes('sick') || val.toLowerCase().includes('paid lieu') || val.toLowerCase().includes('off')) {
                         originalInputs[i].removeAttribute('data-formula');
                         cloneInputs[i].removeAttribute('data-formula');
                         if (td.getAttribute("style")) {
@@ -1514,7 +1552,7 @@
                     }
                 }
                 
-                if (originalInputs[i].classList.contains('time-input') && val !== "" && val.toLowerCase() !== "missed" && !val.toLowerCase().includes('vacation') && !val.toLowerCase().includes('sick') && !val.toLowerCase().includes('off')) {
+                if (originalInputs[i].classList.contains('time-input') && val !== "" && val.toLowerCase() !== "missed" && !val.toLowerCase().includes('vacation') && !val.toLowerCase().includes('sick') && !val.toLowerCase().includes('paid lieu') && !val.toLowerCase().includes('off')) {
                     td.setAttribute("style", td.getAttribute("style") + "mso-number-format:'\\[h\\]\\:mm';");
                 }
                 
