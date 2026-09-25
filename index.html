@@ -72,13 +72,13 @@
         
         /* Report & Data Table Styles */
         .report-controls { display: flex; gap: 15px; margin-bottom: 15px; align-items: center; justify-content: space-between; }
-        .report-table { width: 100%; border-collapse: collapse; font-size: 14px; text-align: center; margin-bottom: 40px; border: 2px solid #000; }
-        .report-table th, .report-table td { border: 1px solid #000; padding: 6px; }
+        .report-table { width: 100%; border-collapse: collapse; font-family: Calibri, sans-serif; font-size: 14px; text-align: center; vertical-align: middle; margin-bottom: 40px; border: 2px solid #000; }
+        .report-table th, .report-table td { border: 1px solid #000; padding: 6px; text-align: center; vertical-align: middle; }
         .report-header-title { background-color: #bfbfbf; font-weight: bold; font-size: 18px; padding: 10px !important; border: 2px solid #000; text-transform: capitalize; }
-        .text-green { color: #28a745; font-weight: bold; }
+        .text-green { color: #00b050; font-weight: bold; }
         .row-break { color: #dc3545; }
         
-        .note-input, .time-input { width: 100%; border: 1px solid transparent; text-align: center; background: transparent; font-family: inherit; font-size: inherit; padding: 4px; box-sizing: border-box; color: inherit; }
+        .note-input, .time-input { width: 100%; border: 1px solid transparent; text-align: center; background: transparent; font-family: Calibri, sans-serif; font-size: inherit; padding: 4px; box-sizing: border-box; color: inherit; }
         .note-input:hover, .note-input:focus, .time-input:hover, .time-input:focus { border: 1px solid #ccc; background: #fff; outline: none; }
         
         @media print {
@@ -989,9 +989,8 @@
                 const shiftData = {};
                 shiftsSnap.forEach(doc => {
                     const s = doc.data();
-                    const d = s.timestamp.toDate(); // This is a local Date object
+                    const d = s.timestamp.toDate(); 
                     
-                    // Format correctly based on local time, NOT UTC string
                     const year = d.getFullYear();
                     const month = String(d.getMonth() + 1).padStart(2, '0');
                     const day = String(d.getDate()).padStart(2, '0');
@@ -1071,7 +1070,6 @@
                             for (let i = 0; i < rangeDates.length; i++) {
                                 let d = rangeDates[i];
                                 
-                                // Format correctly based on local time
                                 const year = d.getFullYear();
                                 const month = String(d.getMonth() + 1).padStart(2, '0');
                                 const day = String(d.getDate()).padStart(2, '0');
@@ -1083,7 +1081,8 @@
                                 let bg = isWeekend ? 'background-color: #bfbfbf;' : 'background-color: #ffffff;';
                                 let bgTotalRow = isWeekend ? 'background-color: #bfbfbf;' : 'background-color: #e6e6e6;';
                                 
-                                let tIn = "0:00", tOut = "0:00", tBreak = "0:00", tTotal = "0:00";
+                                // Default blank values so Excel renders empty cells cleanly
+                                let tIn = "", tOut = "", tBreak = "", tTotal = "0:00";
                                 
                                 if (dayData && dayData.in) {
                                     let roundedIn = new Date(dayData.in);
@@ -1117,7 +1116,9 @@
                                         
                                         tBreak = breakMins === 45 ? "0:45" : "0:00";
                                         tTotal = `${Math.floor(netMins / 60)}:${(netMins % 60).toString().padStart(2, '0')}`;
-                                    } else { tOut = "Missed"; }
+                                    } else { 
+                                        tOut = "Missed"; 
+                                    }
                                 }
                                 
                                 rowIn += `<td style="border: 1px solid #000; padding: 0; ${bg}"><input type="text" value="${tIn}" class="time-input"></td>`;
@@ -1164,12 +1165,24 @@
             const container = document.getElementById('report-container');
             if (container.innerHTML.includes("Loading") || container.innerHTML.includes("No shifts") || container.innerHTML.includes("Error")) return;
             
-            const inputs = container.querySelectorAll('.note-input, .time-input');
-            inputs.forEach(input => {
-                input.setAttribute('value', input.value); 
-            });
+            // Clone the container so we don't convert the live UI to uneditable text
+            const clone = container.cloneNode(true);
+            
+            // Replace all input boxes with plain text spans so Excel can read them
+            const originalInputs = container.querySelectorAll('.note-input, .time-input');
+            const cloneInputs = clone.querySelectorAll('.note-input, .time-input');
+            
+            for (let i = 0; i < originalInputs.length; i++) {
+                const val = originalInputs[i].value;
+                const span = document.createElement('span');
+                span.innerText = val;
+                if (originalInputs[i].style.color === 'red') {
+                    span.style.color = 'red';
+                }
+                cloneInputs[i].parentNode.replaceChild(span, cloneInputs[i]);
+            }
 
-            const template = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>table { border-collapse: collapse; font-family: Calibri, sans-serif; text-align: center; } th, td { border: 1px solid #000000; padding: 4px; } .weekend-col { background-color: #a6a6a6; } .text-green { color: green; font-weight: bold; } .row-break { color: red; } .totals-row { background-color: #a6a6a6; font-weight: bold; }</style></head><body>${container.innerHTML}</body></html>`;
+            const template = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>table { border-collapse: collapse; font-family: Calibri, sans-serif; font-size: 11pt; text-align: center; vertical-align: middle; } th, td { border: 1px solid #000000; padding: 4px; text-align: center; vertical-align: middle; } .weekend-col { background-color: #a6a6a6; } .text-green { color: #00b050; font-weight: bold; } .row-break { color: red; } .totals-row { background-color: #a6a6a6; font-weight: bold; }</style></head><body>${clone.innerHTML}</body></html>`;
             
             const blob = new Blob([template], { type: 'application/vnd.ms-excel' });
             const link = document.createElement("a");
