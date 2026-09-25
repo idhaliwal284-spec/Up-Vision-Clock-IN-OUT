@@ -459,8 +459,11 @@
                             }
                         }
                     } else {
-                        // Agency Break logic
-                        let bM = parseTime(thirdVal);
+                        // Agency Break logic: deduct 45 min if worked > 4 hours (240 mins)
+                        if (diff > 240 && thirdVal === "") {
+                            newThird = "0:45";
+                        }
+                        let bM = parseTime(newThird);
                         newTotal = formatTime(Math.max(0, diff - bM));
                     }
                 }
@@ -483,7 +486,7 @@
                 totalInput.style.color = 'inherit';
             }
             
-            if (isSignifi) {
+            if (newThird !== thirdVal) {
                 document.getElementById(`break_${gIdx}_${eIdx}_${colIdx}`).value = newThird;
             }
 
@@ -1643,9 +1646,7 @@
                                                 }
                                             }
                                         } else {
-                                            let onePM = new Date(roundedOut);
-                                            onePM.setHours(13, 0, 0, 0);
-                                            tBreak = (roundedOut > onePM) ? "0:45" : "";
+                                            tBreak = (diffMins > 240) ? "0:45" : "";
                                         }
                                     } else {
                                         tOut = "Missed";
@@ -1683,6 +1684,9 @@
                                             }
                                         }
                                     } else {
+                                        if (diff > 240 && tBreak === "" && (!override || override.break === undefined)) {
+                                            tBreak = "0:45";
+                                        }
                                         let bM = parseTimeStr(tBreak);
                                         let netMins = Math.max(0, diff - bM);
                                         tTotal = `${Math.floor(netMins / 60)}:${(netMins % 60).toString().padStart(2, '0')}`;
