@@ -1192,7 +1192,7 @@
                 const batch = db.batch();
                 const timeInputs = document.querySelectorAll('.time-input');
                 const overrideMap = {};
-                const empUpdates = {}; 
+                const empDeltas = {}; 
                 
                 timeInputs.forEach(input => {
                     const empId = input.dataset.empid;
@@ -1207,54 +1207,61 @@
                         }
                         overrideMap[docId][field] = val;
 
-                        // Auto-Deduct Logic for numbered tracking
+                        // Dynamic Leave Deduction logic (Delta based)
                         if (field === 'total') {
-                            let vMatch = val.match(/Vacation-\d{4}-(\d+)/i);
-                            if (vMatch) {
-                                let num = parseInt(vMatch[1]);
-                                let currentDbVacUsed = parseInt(input.dataset.vacused) || 0;
-                                if (num > currentDbVacUsed) {
-                                    if (!empUpdates[empId]) empUpdates[empId] = {};
-                                    empUpdates[empId].vacationUsed = num;
-                                    input.dataset.vacused = num; // update DOM memory
-                                }
-                            }
+                            if (!empDeltas[empId]) empDeltas[empId] = { vac: 0, sick: 0, lieu: 0 };
                             
-                            let sMatch = val.match(/Sick-\d{4}-(\d+)/i);
-                            if (sMatch) {
-                                let num = parseInt(sMatch[1]);
-                                let currentDbSickUsed = parseInt(input.dataset.sickused) || 0;
-                                if (num > currentDbSickUsed) {
-                                    if (!empUpdates[empId]) empUpdates[empId] = {};
-                                    empUpdates[empId].sickUsed = num;
-                                    input.dataset.sickused = num;
-                                }
-                            }
+                            let oldVal = (input.dataset.original || "").toLowerCase();
+                            let newVal = val.toLowerCase();
 
-                            let lMatch = val.match(/Paid Lieu-\d{4}-(\d+)/i);
-                            if (lMatch) {
-                                let num = parseInt(lMatch[1]);
-                                let currentDbLieuUsed = parseInt(input.dataset.lieuused) || 0;
-                                if (num > currentDbLieuUsed) {
-                                    if (!empUpdates[empId]) empUpdates[empId] = {};
-                                    empUpdates[empId].lieuUsed = num;
-                                    input.dataset.lieuused = num;
-                                }
-                            }
+                            let oldIsVac = oldVal.includes('vacation');
+                            let oldIsSick = oldVal.includes('sick');
+                            let oldIsLieu = oldVal.includes('paid lieu');
+
+                            let newIsVac = newVal.includes('vacation');
+                            let newIsSick = newVal.includes('sick');
+                            let newIsLieu = newVal.includes('paid lieu');
+
+                            // Compute Deltas (+1 if added, -1 if removed)
+                            if (newIsVac && !oldIsVac) empDeltas[empId].vac++;
+                            if (!newIsVac && oldIsVac) empDeltas[empId].vac--;
+
+                            if (newIsSick && !oldIsSick) empDeltas[empId].sick++;
+                            if (!newIsSick && oldIsSick) empDeltas[empId].sick--;
+
+                            if (newIsLieu && !oldIsLieu) empDeltas[empId].lieu++;
+                            if (!newIsLieu && oldIsLieu) empDeltas[empId].lieu--;
                         }
                     }
                 });
                 
+                // Commit the manual cell overrides
                 Object.keys(overrideMap).forEach(docId => {
                     const docRef = db.collection('timesheet_overrides').doc(docId);
                     batch.set(docRef, overrideMap[docId], { merge: true });
                 });
                 
-                Object.keys(empUpdates).forEach(empId => {
-                    const empRef = db.collection('employees').doc(empId);
-                    batch.set(empRef, empUpdates[empId], { merge: true });
-                });
+                // Apply dynamic deltas to the employee balances
+                for (let empId of Object.keys(empDeltas)) {
+                    let delta = empDeltas[empId];
+                    if (delta.vac !== 0 || delta.sick !== 0 || delta.lieu !== 0) {
+                        let empRef = db.collection('employees').doc(empId);
+                        let empDoc = await empRef.get();
+                        if (empDoc.exists) {
+                            let empData = empDoc.data();
+                            let newVac = Math.max(0, (empData.vacationUsed || 0) + delta.vac);
+                            let newSick = Math.max(0, (empData.sickUsed || 0) + delta.sick);
+                            let newLieu = Math.max(0, (empData.lieuUsed || 0) + delta.lieu);
+                            batch.update(empRef, {
+                                vacationUsed: newVac,
+                                sickUsed: newSick,
+                                lieuUsed: newLieu
+                            });
+                        }
+                    }
+                }
 
+                // Save Notes
                 const noteInputs = document.querySelectorAll('.note-input');
                 noteInputs.forEach(input => {
                     const empId = input.dataset.empid;
@@ -1399,7 +1406,6 @@
                         let tableTitle = `${isSignifi ? 'Signifi' : agency} ${dept} - Timesheet`;
                         let firstColHeader = `${dept} - timesheet at Tech Avn.`;
                         
-                        // Signifi has 4 distinct columns at the end, Agencies have 3
                         let titleColspan = rangeDates.length + (isSignifi ? 6 : 5);
 
                         html += `<table class="report-table" style="table-layout: fixed; width: 100%; border: 2px solid #000; border-collapse: collapse; font-family: Calibri, sans-serif; font-size: 11pt;">`;
@@ -1417,7 +1423,6 @@
                             html += `<td style="width:7%; border: 1px solid #000; font-weight: bold; text-align: center; ${bg}">${dayNames[d.getDay()]}</td>`; 
                         }
                         
-                        // Differentiated Headers
                         if (isSignifi) {
                             html += `<td rowspan="2" style="width:7%; border: 1px solid #000; font-weight: bold; background-color: #d9d9d9; text-align: center; vertical-align: middle;">Total Full Days</td>`;
                             html += `<td rowspan="2" style="width:8%; border: 1px solid #000; font-weight: bold; background-color: #d9d9d9; text-align: center; vertical-align: middle;">Total Extra Hours</td>`;
@@ -1449,7 +1454,6 @@
                             eIdx++;
                             let empStartRow = excelRow;
                             
-                            // Smart Vacation / Sick / Paid Lieu / Off Datalist Builder
                             let datalistId = `leave_${emp.id}`;
                             let datalistHtml = `<datalist id="${datalistId}">`;
                             
@@ -1576,16 +1580,15 @@
                                 let outCell = `${colLtr}${empStartRow + 1}`;
                                 let breakCell = `${colLtr}${empStartRow + 2}`;
                                 
-                                // Clean Excel math string for blank breaks natively
                                 let excelFormula = `=IFERROR(${outCell}-${inCell}-IF(${breakCell}="",0,${breakCell}), 0)`;
-                                if (isSignifi) excelFormula = ""; // Signifi relies entirely on string text logic for 'Total' now
+                                if (isSignifi) excelFormula = "";
 
                                 let tTotalColor = (tTotal.toLowerCase() === 'off') ? 'red' : 'inherit';
 
                                 rowIn += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${inId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="in" value="${tIn}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}')"></td>`;
                                 rowOut += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${outId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="out" value="${tOut}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}')"></td>`;
                                 rowBreak += `<td class="row-break" style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${breakId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="break" value="${tBreak}" class="time-input" style="color: ${isSignifi ? '#28a745' : 'red'}; font-weight: ${isSignifi ? 'bold' : 'normal'};" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}')"></td>`;
-                                rowTotal += `<td style="border: 1px solid #000; padding: 0; ${bgTotalRow}"><input type="text" list="${datalistId}" id="${totalId}" data-empid="${emp.id}" data-emptype="${emp.type}" data-vacused="${emp.vacationUsed||0}" data-sickused="${emp.sickUsed||0}" data-lieuused="${emp.lieuUsed||0}" data-date="${dateStr}" data-field="total" data-formula="${excelFormula}" value="${tTotal}" class="time-input total-input" style="font-weight:bold; border:none; text-align:center; width:100%; background:transparent; color:${tTotalColor};" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}')"></td>`;
+                                rowTotal += `<td style="border: 1px solid #000; padding: 0; ${bgTotalRow}"><input type="text" list="${datalistId}" id="${totalId}" data-empid="${emp.id}" data-emptype="${emp.type}" data-date="${dateStr}" data-field="total" data-original="${tTotal}" data-formula="${excelFormula}" value="${tTotal}" class="time-input total-input" style="font-weight:bold; border:none; text-align:center; width:100%; background:transparent; color:${tTotalColor};" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}')"></td>`;
                             }
 
                             let defaultNote = notesData[emp.id] ? notesData[emp.id] : `Regular ${dept} Projects`;
@@ -1607,7 +1610,6 @@
                             html += `<td rowspan="4" style="width:12%; font-weight:bold; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;">${emp.name}${datalistHtml}</td>`;
                             html += `<td style="width:4%; border: 1px solid #000; background-color: #ffffff; text-align: center;">In</td>${rowIn}`;
                             
-                            // Right Side Block Layout Changes based on Agency vs Signifi
                             if (isSignifi) {
                                 html += `<td id="fulldays_${gIdx}_${eIdx}" class="group-fulldays-${gIdx}" data-formula='${fmtFullDaysFormula}' rowspan="4" style="font-weight:bold; font-size: 18px; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;">0</td>`;
                                 html += `<td id="extrahrs_${gIdx}_${eIdx}" class="group-extrahrs-${gIdx}" data-formula='${fmtExtraHrsFormula}' rowspan="4" style="font-weight:bold; font-size: 18px; color: #28a745; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff; mso-number-format:'\\[h\\]\\:mm';">0:00</td>`;
@@ -1630,7 +1632,7 @@
                             excelRow += 4;
                         });
                         
-                        let totalRowLeftSpan = 2 + rangeDates.length; // Names(1) + In/Out(1) + Dates(7)
+                        let totalRowLeftSpan = 2 + rangeDates.length;
                         
                         html += `<tr class="totals-row" style="background-color: #a6a6a6;">`;
                         
@@ -1694,7 +1696,7 @@
                     td.setAttribute("style", td.getAttribute("style") + "mso-number-format:'\\[h\\]\\:mm';");
                 }
                 
-                td.innerHTML = `<span style="${originalInputs[i].style.color ? 'color:red;' : ''}">${val === '0:00' ? '' : val}</span>`;
+                td.innerHTML = `<span style="${originalInputs[i].style.color ? `color:${originalInputs[i].style.color};` : ''}">${val === '0:00' ? '' : val}</span>`;
             }
 
             // Strictly inject formulas for native Excel processing
