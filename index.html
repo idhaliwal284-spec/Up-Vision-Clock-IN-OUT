@@ -506,6 +506,7 @@
                 pendingEmpData = empDoc.data();
                 pendingBadgeId = badgeId;
                 
+                // BYPASS FIREBASE INDEX REQUIREMENT BY PULLING DIRECTLY AND FILTERING IN JS
                 const shiftQuery = await db.collection('shifts').where('employeeId', '==', badgeId).get();
 
                 pendingAction = 'IN';
@@ -908,7 +909,7 @@
             document.getElementById('emp-sick-used').value = '0';
             
             toggleDeptCustom();
-            toggleTypeCustom(); // Triggers hiding/showing tracking row by default
+            toggleTypeCustom(); 
 
             if (empData) {
                 title.innerText = "Edit Employee Information";
@@ -1198,6 +1199,7 @@
             container.innerHTML = "<p>Loading timesheets...</p>";
 
             try {
+                // BYPASS FIREBASE INDEXING ERRORS: PULL ALL DOCS DIRECTLY AND FILTER IN JAVASCRIPT
                 const empsSnapshot = await db.collection("employees").get();
                 const employees = {};
                 const reportAgencies = new Set();
@@ -1210,11 +1212,14 @@
                     }
                 });
 
-                const overridesSnap = await db.collection("timesheet_overrides")
-                    .where("date", ">=", startStr)
-                    .where("date", "<=", endStr).get();
+                const overridesSnap = await db.collection("timesheet_overrides").get();
                 const overridesData = {};
-                overridesSnap.forEach(doc => overridesData[doc.id] = doc.data());
+                overridesSnap.forEach(doc => {
+                    const data = doc.data();
+                    if (data.date >= startStr && data.date <= endStr) {
+                        overridesData[doc.id] = data;
+                    }
+                });
 
                 const notesSnap = await db.collection("timesheet_notes").get();
                 const notesData = {};
@@ -1228,28 +1233,33 @@
                 });
                 filterTabsContainer.innerHTML = tabsHtml;
 
-                const shiftsSnap = await db.collection("shifts")
-                    .where("timestamp", ">=", startD)
-                    .where("timestamp", "<=", queryEndD)
-                    .orderBy("timestamp", "asc").get();
+                const shiftsSnap = await db.collection("shifts").get();
                 
                 const shiftData = {};
                 shiftsSnap.forEach(doc => {
                     const s = doc.data();
+                    if (!s.timestamp) return;
+                    
                     const d = s.timestamp.toDate(); 
                     
-                    const year = d.getFullYear();
-                    const month = String(d.getMonth() + 1).padStart(2, '0');
-                    const day = String(d.getDate()).padStart(2, '0');
-                    const dateStr = `${year}-${month}-${day}`;
-                    
-                    if (!shiftData[s.employeeId]) shiftData[s.employeeId] = {};
-                    if (!shiftData[s.employeeId][dateStr]) shiftData[s.employeeId][dateStr] = {};
-                    
-                    if (s.action === "IN" && !shiftData[s.employeeId][dateStr].in) {
-                        shiftData[s.employeeId][dateStr].in = d;
-                    } else if (s.action === "OUT") {
-                        shiftData[s.employeeId][dateStr].out = d;
+                    if (d >= startD && d <= queryEndD) {
+                        const year = d.getFullYear();
+                        const month = String(d.getMonth() + 1).padStart(2, '0');
+                        const day = String(d.getDate()).padStart(2, '0');
+                        const dateStr = `${year}-${month}-${day}`;
+                        
+                        if (!shiftData[s.employeeId]) shiftData[s.employeeId] = {};
+                        if (!shiftData[s.employeeId][dateStr]) shiftData[s.employeeId][dateStr] = {};
+                        
+                        if (s.action === "IN") {
+                            if (!shiftData[s.employeeId][dateStr].in || d < shiftData[s.employeeId][dateStr].in) {
+                                shiftData[s.employeeId][dateStr].in = d;
+                            }
+                        } else if (s.action === "OUT") {
+                            if (!shiftData[s.employeeId][dateStr].out || d > shiftData[s.employeeId][dateStr].out) {
+                                shiftData[s.employeeId][dateStr].out = d;
+                            }
+                        }
                     }
                 });
 
@@ -1324,7 +1334,6 @@
                             let vUsed = emp.vacationUsed || 0;
                             let sUsed = emp.sickUsed || 0;
                             
-                            // Only build the dropdown if it is a Signifi employee
                             if (isSignifi) {
                                 datalistHtml = `<datalist id="${datalistId}">`;
                                 let vTotal = emp.vacationTotal || 0;
@@ -1411,7 +1420,6 @@
                                     tTotal = override.total;
                                 }
                                 
-                                // Attach dynamic list if Signifi and fields are empty
                                 let listAttr = (!tIn && !tOut && isSignifi) ? `list="${datalistId}"` : "";
                                 
                                 let inId = `in_${gIdx}_${eIdx}_${i}`;
