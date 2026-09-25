@@ -97,7 +97,7 @@
     <!-- Status Indicator -->
     <div id="connection-status" title="Checking database connection..."></div>
     <button id="admin-btn" onclick="showLoginModal()">Admin Access</button>
-    <div class="bottom-right-credit"></div>
+    <div class="bottom-right-credit">Created by Ishanjeet Dhaliwal</div>
 
     <!-- Kiosk View -->
     <div id="kiosk-view">
@@ -484,7 +484,7 @@
 
         function handleLoginEnter(e) {
             if (e.key === 'Enter') {
-                e.preventDefault(); // Prevents accidental double-clicking
+                e.preventDefault(); 
                 verifyLogin();
             }
         }
@@ -513,7 +513,6 @@
             if (!user || !pass) return alert('Enter both username and password.');
 
             try {
-                // Check Firestore for user
                 const snapshot = await db.collection('admins').where('username', '==', user).get();
                 
                 if (!snapshot.empty) {
@@ -524,12 +523,11 @@
                         alert("Incorrect Password.");
                     }
                 } else {
-                    // FALLBACK CREATION: If DB is empty, auto-create the foundational accounts
                     if (user === 'idhaliwal@signifi.com' && pass === 'Yaarpardesi@18') {
                         try {
                             const newDoc = await db.collection('admins').add({username: user, password: pass, role: 'Super Admin'});
                             grantAccess('Super Admin', newDoc.id);
-                        } catch(e) { grantAccess('Super Admin', 'local-super-admin'); } // fallback if offline
+                        } catch(e) { grantAccess('Super Admin', 'local-super-admin'); } 
                     } 
                     else if (user === 'admin' && pass === '1985') { 
                         try {
@@ -542,7 +540,6 @@
                     }
                 }
             } catch(err) {
-                // If Firebase throws a permissions or offline error, safely check the hardcoded overrides directly
                 if (user === 'idhaliwal@signifi.com' && pass === 'Yaarpardesi@18') {
                     grantAccess('Super Admin', 'local-super-admin');
                 } else if (user === 'admin' && pass === '1985') {
@@ -572,13 +569,24 @@
             if (tabId === 'settings' && currentAdminRole === 'Super Admin') loadAdminUsers();
             if (tabId === 'reports') {
                 if(!document.getElementById('report-start').value) {
+                    
+                    // Generate local dates properly
                     let d = new Date();
                     let day = d.getDay(), diff = d.getDate() - day + (day == 0 ? -6 : 1);
                     d.setDate(diff);
-                    document.getElementById('report-start').value = d.toISOString().split('T')[0];
+                    
+                    const startYear = d.getFullYear();
+                    const startMonth = String(d.getMonth() + 1).padStart(2, '0');
+                    const startDay = String(d.getDate()).padStart(2, '0');
+                    document.getElementById('report-start').value = `${startYear}-${startMonth}-${startDay}`;
+                    
                     let endD = new Date(d);
                     endD.setDate(endD.getDate() + 6);
-                    document.getElementById('report-end').value = endD.toISOString().split('T')[0];
+                    
+                    const endYear = endD.getFullYear();
+                    const endMonth = String(endD.getMonth() + 1).padStart(2, '0');
+                    const endDay = String(endD.getDate()).padStart(2, '0');
+                    document.getElementById('report-end').value = `${endYear}-${endMonth}-${endDay}`;
                 }
                 generateReport();
             }
@@ -921,8 +929,12 @@
                 return;
             }
             
-            const startD = new Date(startStr + "T00:00:00");
-            const endD = new Date(endStr + "T00:00:00");
+            // Generate LOCAL dates correctly without UTC timezone shift
+            const [sYear, sMonth, sDay] = startStr.split('-');
+            const startD = new Date(sYear, sMonth - 1, sDay);
+            
+            const [eYear, eMonth, eDay] = endStr.split('-');
+            const endD = new Date(eYear, eMonth - 1, eDay);
             
             if (endD < startD) {
                 alert("End date must be after start date.");
@@ -977,8 +989,13 @@
                 const shiftData = {};
                 shiftsSnap.forEach(doc => {
                     const s = doc.data();
-                    const d = s.timestamp.toDate();
-                    const dateStr = d.toISOString().split('T')[0];
+                    const d = s.timestamp.toDate(); // This is a local Date object
+                    
+                    // Format correctly based on local time, NOT UTC string
+                    const year = d.getFullYear();
+                    const month = String(d.getMonth() + 1).padStart(2, '0');
+                    const day = String(d.getDate()).padStart(2, '0');
+                    const dateStr = `${year}-${month}-${day}`;
                     
                     if (!shiftData[s.employeeId]) shiftData[s.employeeId] = {};
                     if (!shiftData[s.employeeId][dateStr]) shiftData[s.employeeId][dateStr] = {};
@@ -1053,7 +1070,13 @@
                             
                             for (let i = 0; i < rangeDates.length; i++) {
                                 let d = rangeDates[i];
-                                let dateStr = d.toISOString().split('T')[0];
+                                
+                                // Format correctly based on local time
+                                const year = d.getFullYear();
+                                const month = String(d.getMonth() + 1).padStart(2, '0');
+                                const day = String(d.getDate()).padStart(2, '0');
+                                const dateStr = `${year}-${month}-${day}`;
+                                
                                 let dayData = (shiftData[emp.id] && shiftData[emp.id][dateStr]) ? shiftData[emp.id][dateStr] : null;
                                 
                                 let isWeekend = d.getDay() === 0 || d.getDay() === 6;
