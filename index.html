@@ -183,7 +183,7 @@
                     <input type="text" id="emp-dept-custom" placeholder="Type new department name..." style="display:none; margin-top:10px;">
                 </div>
                 <div class="form-group" style="width: 50%;">
-                    <label>Employment / Agency Type</label>
+                    <label>Employment / Agency</label>
                     <select id="emp-type-select" onchange="toggleTypeCustom()">
                         <option value="Signifi">Signifi</option>
                         <option value="T-DOT">T-DOT</option>
@@ -192,6 +192,15 @@
                     </select>
                     <input type="text" id="emp-type-custom" placeholder="Type new agency name..." style="display:none; margin-top:10px;">
                 </div>
+            </div>
+
+            <!-- Pay Type (Only for Signifi) -->
+            <div class="form-group">
+                <label>Pay Type <small style="color:gray;">(Signifi Only)</small></label>
+                <select id="emp-pay-type">
+                    <option value="Salaried">Salaried</option>
+                    <option value="Hourly">Hourly</option>
+                </select>
             </div>
 
             <!-- Vacation, Sick, and Paid Lieu Tracking -->
@@ -286,6 +295,7 @@
                         <th>Badge ID</th>
                         <th>Name</th>
                         <th>Dept / Agency</th>
+                        <th>Pay Type</th>
                         <th>Vacation (Rem/Tot)</th>
                         <th>Sick (Rem/Tot)</th>
                         <th>Lieu (Rem/Tot)</th>
@@ -293,7 +303,7 @@
                     </tr>
                 </thead>
                 <tbody id="employee-list-body">
-                    <tr><td colspan="7" style="text-align:center;">Loading...</td></tr>
+                    <tr><td colspan="8" style="text-align:center;">Loading...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -381,8 +391,9 @@
         }
 
         // === LIVE TIMESHEET RECALCULATION ENGINE (UI) ===
-        window.recalcTime = function(gIdx, eIdx, colIdx, numCols, empType) {
+        window.recalcTime = function(gIdx, eIdx, colIdx, numCols, empType, payType) {
             const isSignifi = (empType === 'Signifi');
+            const isHourly = (payType === 'Hourly');
             
             const inVal = document.getElementById(`in_${gIdx}_${eIdx}_${colIdx}`).value.trim();
             const outVal = document.getElementById(`out_${gIdx}_${eIdx}_${colIdx}`).value.trim();
@@ -403,7 +414,7 @@
             };
 
             let newTotal = "";
-            let newThird = thirdVal; // Either break or extra hrs
+            let newThird = thirdVal; 
             
             if (inVal && outVal && outVal.toLowerCase() !== "missed") {
                 let inM = parseTime(inVal);
@@ -413,18 +424,22 @@
                     let diff = outM - inM;
                     
                     if (isSignifi) {
-                        // Signifi: 8 hours max standard. Everything else is Extra Hours.
-                        if (diff >= 480) {
-                            newTotal = "Full Day";
-                            let ext = diff - 480;
-                            if (ext > 0) newThird = formatTime(ext);
-                            else newThird = "";
-                        } else {
+                        if (isHourly) {
                             newTotal = formatTime(diff);
-                            newThird = ""; // No extra hours if less than 8 hours
+                            newThird = ""; 
+                        } else {
+                            if (diff >= 480) {
+                                newTotal = "Full Day";
+                                let ext = diff - 480;
+                                if (ext > 0) newThird = formatTime(ext);
+                                else newThird = "";
+                            } else {
+                                newTotal = formatTime(diff);
+                                newThird = "";
+                            }
                         }
                     } else {
-                        // Agency: Standard Break logic
+                        // Agency Break logic
                         let bM = parseTime(thirdVal);
                         newTotal = formatTime(Math.max(0, diff - bM));
                     }
@@ -434,7 +449,6 @@
             let currentTotal = totalInput.value.trim().toLowerCase();
             let hasLeaveText = (currentTotal.includes('vacation') || currentTotal.includes('sick') || currentTotal.includes('paid lieu') || currentTotal.includes('off') || currentTotal.includes('stat holiday') || currentTotal.includes('full day'));
             
-            // Apply calculations while protecting text entries
             if (!hasLeaveText || (inVal && outVal && outVal.toLowerCase() !== "missed")) {
                 if (newTotal !== "") {
                     totalInput.value = newTotal;
@@ -443,53 +457,70 @@
                 }
             }
             
-            // Re-check input value dynamically to color "Off" correctly
             if (totalInput.value.trim().toLowerCase() === 'off') {
                 totalInput.style.color = 'red';
             } else {
                 totalInput.style.color = 'inherit';
             }
             
-            // Also apply extra hours back into UI if it's Signifi
             if (isSignifi) {
                 document.getElementById(`break_${gIdx}_${eIdx}_${colIdx}`).value = newThird;
             }
 
-            // Update Aggregates for the employee
+            // Update Aggregates
             if (isSignifi) {
-                let fullDaysCount = 0;
-                let extraHrsMins = 0;
-                let leavesList = [];
-                
-                for(let i=0; i<numCols; i++) {
-                    let tVal = document.getElementById(`total_${gIdx}_${eIdx}_${i}`).value.trim().toLowerCase();
-                    let extVal = document.getElementById(`break_${gIdx}_${eIdx}_${i}`).value.trim();
+                if (isHourly) {
+                    let totalMins = 0;
+                    let leavesList = [];
+                    for(let i=0; i<numCols; i++) {
+                        let tVal = document.getElementById(`total_${gIdx}_${eIdx}_${i}`).value.trim().toLowerCase();
+                        if (tVal.includes('vacation') || tVal.includes('sick') || tVal.includes('paid lieu') || tVal.includes('stat holiday')) {
+                            totalMins += 480; 
+                            let origVal = document.getElementById(`total_${gIdx}_${eIdx}_${i}`).value.trim();
+                            leavesList.push(origVal);
+                        } else if (!tVal.includes('off') && tVal !== "") {
+                            totalMins += parseTime(tVal);
+                        }
+                    }
+                    document.getElementById(`fulldays_${gIdx}_${eIdx}`).innerText = `${formatTime(totalMins)} Hours`;
+                    document.getElementById(`extrahrs_${gIdx}_${eIdx}`).innerText = ""; 
                     
-                    if (tVal === "full day" || tVal.includes('vacation') || tVal.includes('sick') || tVal.includes('paid lieu') || tVal.includes('stat holiday')) {
-                        fullDaysCount++;
+                    let leaveSummary = {};
+                    leavesList.forEach(l => {
+                        let key = l.split('-')[0];
+                        leaveSummary[key] = (leaveSummary[key] || 0) + 1;
+                    });
+                    document.getElementById(`leaves_${gIdx}_${eIdx}`).innerText = Object.keys(leaveSummary).map(k => `${leaveSummary[k]} ${k}`).join(', ');
+                } else {
+                    let fullDaysCount = 0;
+                    let extraHrsMins = 0;
+                    let leavesList = [];
+                    
+                    for(let i=0; i<numCols; i++) {
+                        let tVal = document.getElementById(`total_${gIdx}_${eIdx}_${i}`).value.trim().toLowerCase();
+                        let extVal = document.getElementById(`break_${gIdx}_${eIdx}_${i}`).value.trim();
+                        
+                        if (tVal === "full day" || tVal.includes('vacation') || tVal.includes('sick') || tVal.includes('paid lieu') || tVal.includes('stat holiday')) {
+                            fullDaysCount++;
+                        }
+                        if (tVal.includes('vacation') || tVal.includes('sick') || tVal.includes('paid lieu') || tVal.includes('stat holiday')) {
+                            let origVal = document.getElementById(`total_${gIdx}_${eIdx}_${i}`).value.trim();
+                            leavesList.push(origVal);
+                        }
+                        extraHrsMins += parseTime(extVal);
                     }
-                    if (tVal.includes('vacation') || tVal.includes('sick') || tVal.includes('paid lieu') || tVal.includes('stat holiday')) {
-                        // Keep original capitalization for clean listing
-                        let origVal = document.getElementById(`total_${gIdx}_${eIdx}_${i}`).value.trim();
-                        leavesList.push(origVal);
-                    }
-                    extraHrsMins += parseTime(extVal);
+                    
+                    document.getElementById(`fulldays_${gIdx}_${eIdx}`).innerText = `${fullDaysCount} Days`;
+                    document.getElementById(`extrahrs_${gIdx}_${eIdx}`).innerText = formatTime(extraHrsMins) || "0:00";
+                    
+                    let leaveSummary = {};
+                    leavesList.forEach(l => {
+                        let key = l.split('-')[0];
+                        leaveSummary[key] = (leaveSummary[key] || 0) + 1;
+                    });
+                    document.getElementById(`leaves_${gIdx}_${eIdx}`).innerText = Object.keys(leaveSummary).map(k => `${leaveSummary[k]} ${k}`).join(', ');
                 }
-                
-                document.getElementById(`fulldays_${gIdx}_${eIdx}`).innerText = fullDaysCount;
-                document.getElementById(`extrahrs_${gIdx}_${eIdx}`).innerText = formatTime(extraHrsMins) || "0:00";
-                
-                // Group leaves (e.g. 2 Vacation, 1 Sick)
-                let leaveSummary = {};
-                leavesList.forEach(l => {
-                    let key = l.split('-')[0]; // Grabs just "Vacation" from "Vacation-2026-1"
-                    leaveSummary[key] = (leaveSummary[key] || 0) + 1;
-                });
-                let leavesDisplay = Object.keys(leaveSummary).map(k => `${leaveSummary[k]} ${k}`).join(', ');
-                document.getElementById(`leaves_${gIdx}_${eIdx}`).innerText = leavesDisplay;
-                
             } else {
-                // Agency Employee Total
                 let empTotal = 0;
                 for(let i=0; i<numCols; i++) {
                     let tVal = document.getElementById(`total_${gIdx}_${eIdx}_${i}`).value.trim();
@@ -498,15 +529,37 @@
                 document.getElementById(`emptotal_${gIdx}_${eIdx}`).innerText = formatTime(empTotal);
             }
 
-            // Update Department Group Totals
+            // Group Totals
             if (isSignifi) {
                 let grpFullDays = 0;
                 let grpExtraHrs = 0;
-                document.querySelectorAll(`.group-fulldays-${gIdx}`).forEach(el => grpFullDays += parseInt(el.innerText) || 0);
-                document.querySelectorAll(`.group-extrahrs-${gIdx}`).forEach(el => grpExtraHrs += parseTime(el.innerText));
+                let hasSalaried = false;
+                let hasHourly = false;
                 
-                if(document.getElementById(`grouptotal_fulldays_${gIdx}`)) document.getElementById(`grouptotal_fulldays_${gIdx}`).innerText = grpFullDays;
-                if(document.getElementById(`grouptotal_extrahrs_${gIdx}`)) document.getElementById(`grouptotal_extrahrs_${gIdx}`).innerText = formatTime(grpExtraHrs) || "0:00";
+                document.querySelectorAll(`.group-fulldays-${gIdx}`).forEach(el => {
+                    let txt = el.innerText || "";
+                    if (txt.includes('Days')) {
+                        grpFullDays += parseInt(txt) || 0;
+                        hasSalaried = true;
+                    } else if (txt.includes('Hours')) {
+                        hasHourly = true;
+                    }
+                });
+                document.querySelectorAll(`.group-extrahrs-${gIdx}`).forEach(el => {
+                    let txt = el.innerText || "";
+                    grpExtraHrs += parseTime(txt);
+                });
+                
+                if(document.getElementById(`grouptotal_fulldays_${gIdx}`)) {
+                    if (hasSalaried && !hasHourly) {
+                        document.getElementById(`grouptotal_fulldays_${gIdx}`).innerText = `${grpFullDays} Days`;
+                    } else {
+                        document.getElementById(`grouptotal_fulldays_${gIdx}`).innerText = "-"; // Cannot mix Days and Hours
+                    }
+                }
+                if(document.getElementById(`grouptotal_extrahrs_${gIdx}`)) {
+                    document.getElementById(`grouptotal_extrahrs_${gIdx}`).innerText = formatTime(grpExtraHrs) || "";
+                }
             } else {
                 let groupTotal = 0;
                 document.querySelectorAll(`.group-emptotal-${gIdx}`).forEach(el => {
@@ -533,10 +586,10 @@
         // Database Connection Indicator Logic
         const statusCircle = document.getElementById('connection-status');
         db.collection('employees').limit(1).get().then(() => {
-            statusCircle.style.backgroundColor = '#28a745'; // Green
+            statusCircle.style.backgroundColor = '#28a745'; 
             statusCircle.title = "Database Connected";
         }).catch((err) => {
-            statusCircle.style.backgroundColor = '#dc3545'; // Red
+            statusCircle.style.backgroundColor = '#dc3545'; 
             statusCircle.title = "Database Error: " + err.message;
         });
 
@@ -555,7 +608,6 @@
             }
         });
 
-        // SCAN LOCK: Prevent double scans from quick physical scanners
         let isProcessingPunch = false;
         let pendingBadgeId = null;
         let pendingAction = null;
@@ -885,14 +937,14 @@
             const tbody = document.getElementById('employee-list-body');
             const filterTabs = document.getElementById('dynamic-filter-tabs');
             
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">Loading...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">Loading...</td></tr>';
             
             try {
                 const snapshot = await db.collection('employees').orderBy('name').get();
                 tbody.innerHTML = '';
                 
                 if (snapshot.empty) {
-                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">No employees found. Add one above!</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">No employees found. Add one above!</td></tr>';
                     return;
                 }
 
@@ -918,6 +970,7 @@
                 const renderEmployeeRow = (emp) => {
                     const safeEmpJson = JSON.stringify(emp).replace(/"/g, '&quot;');
                     let displayAgency = (emp.type === 'Agency') ? (emp.agencyName || 'Unnamed Agency') : '-';
+                    let displayPay = (emp.type === 'Signifi') ? (emp.payType || 'Salaried') : '-';
                     
                     let vacRem = (emp.vacationTotal || 0) - (emp.vacationUsed || 0);
                     let sickRem = (emp.sickTotal || 0) - (emp.sickUsed || 0);
@@ -928,6 +981,7 @@
                             <td><strong>${emp.id}</strong></td>
                             <td>${emp.name}</td>
                             <td>${emp.department} <br><small style="color:gray">${displayAgency}</small></td>
+                            <td>${displayPay}</td>
                             <td>${vacRem} / ${emp.vacationTotal || 0}</td>
                             <td>${sickRem} / ${emp.sickTotal || 0}</td>
                             <td>${lieuRem} / ${emp.lieuTotal || 0}</td>
@@ -956,12 +1010,12 @@
                 });
 
                 if (filteredCount === 0) {
-                    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;">No employees found for this category.</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;">No employees found for this category.</td></tr>`;
                 }
 
             } catch(e) {
                 console.error(e);
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:red;">Database not connected. Check Firebase config.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:red;">Database not connected. Check Firebase config.</td></tr>';
             }
         }
 
@@ -977,6 +1031,7 @@
             document.getElementById('emp-dept-custom').value = '';
             document.getElementById('emp-type-select').value = 'Signifi';
             document.getElementById('emp-type-custom').value = '';
+            document.getElementById('emp-pay-type').value = 'Salaried';
             
             document.getElementById('emp-vacation-total').value = '10';
             document.getElementById('emp-vacation-used').value = '0';
@@ -994,6 +1049,7 @@
                 document.getElementById('emp-original-id').value = empData.id;
                 document.getElementById('emp-id').value = empData.id;
                 document.getElementById('emp-name').value = empData.name;
+                document.getElementById('emp-pay-type').value = empData.payType || 'Salaried';
                 
                 if (empData.vacationTotal !== undefined) document.getElementById('emp-vacation-total').value = empData.vacationTotal;
                 if (empData.vacationUsed !== undefined) document.getElementById('emp-vacation-used').value = empData.vacationUsed;
@@ -1036,6 +1092,7 @@
             const originalId = document.getElementById('emp-original-id').value; 
             const requestedId = document.getElementById('emp-id').value.trim(); 
             const name = document.getElementById('emp-name').value.trim();
+            const payType = document.getElementById('emp-pay-type').value;
             
             if (!name) { alert("Please enter the employee's Full Name."); return; }
 
@@ -1081,6 +1138,7 @@
                     name: name,
                     department: dept,
                     type: type,
+                    payType: payType,
                     agencyName: agency,
                     vacationTotal: vacTotal,
                     vacationUsed: vacUsed,
@@ -1234,13 +1292,11 @@
                     }
                 });
                 
-                // Commit the manual cell overrides
                 Object.keys(overrideMap).forEach(docId => {
                     const docRef = db.collection('timesheet_overrides').doc(docId);
                     batch.set(docRef, overrideMap[docId], { merge: true });
                 });
                 
-                // Apply dynamic deltas to the employee balances safely
                 for (let empId of Object.keys(empDeltas)) {
                     let delta = empDeltas[empId];
                     if (delta.vac !== 0 || delta.sick !== 0 || delta.lieu !== 0) {
@@ -1260,7 +1316,6 @@
                     }
                 }
 
-                // Save Notes
                 const noteInputs = document.querySelectorAll('.note-input');
                 noteInputs.forEach(input => {
                     const empId = input.dataset.empid;
@@ -1273,8 +1328,8 @@
                 await batch.commit();
                 alert("Changes saved successfully! These edits will now persist.");
                 
-                generateReport(); // Refresh everything visually
-                loadEmployees(); // Update the balances on the backend tab silently
+                generateReport(); 
+                loadEmployees(); 
             } catch(e) {
                 console.error(e);
                 alert("Error saving changes.");
@@ -1423,7 +1478,7 @@
                         }
                         
                         if (isSignifi) {
-                            html += `<td rowspan="2" style="width:7%; border: 1px solid #000; font-weight: bold; background-color: #d9d9d9; text-align: center; vertical-align: middle;">Total Full Days</td>`;
+                            html += `<td rowspan="2" style="width:7%; border: 1px solid #000; font-weight: bold; background-color: #d9d9d9; text-align: center; vertical-align: middle;">Total Full Days / Hours</td>`;
                             html += `<td rowspan="2" style="width:8%; border: 1px solid #000; font-weight: bold; background-color: #d9d9d9; text-align: center; vertical-align: middle;">Total Extra Hours</td>`;
                             html += `<td rowspan="2" style="width:10%; border: 1px solid #000; font-weight: bold; background-color: #d9d9d9; text-align: center; vertical-align: middle;">Total Leaves<br><small>(Vac/Sick/Lieu)</small></td>`;
                             html += `<td rowspan="2" style="width:10%; border: 1px solid #000; font-weight: bold; text-align: center; vertical-align: middle;">Note for Extra hours</td></tr>`;
@@ -1452,6 +1507,8 @@
                         groups[agency][dept].forEach(emp => {
                             eIdx++;
                             let empStartRow = excelRow;
+                            let payType = emp.payType || 'Salaried';
+                            let isHourly = (payType === 'Hourly');
                             
                             let datalistId = `leave_${emp.id}`;
                             let datalistHtml = `<datalist id="${datalistId}">`;
@@ -1516,12 +1573,16 @@
                                         let diffMins = Math.floor((roundedOut - roundedIn) / 60000);
                                         
                                         if (isSignifi) {
-                                            if (diffMins >= 480) {
-                                                tTotal = "Full Day";
-                                                let ext = diffMins - 480;
-                                                if (ext > 0) tBreak = `${Math.floor(ext / 60)}:${(ext % 60).toString().padStart(2, '0')}`;
-                                            } else {
+                                            if (isHourly) {
                                                 tTotal = `${Math.floor(diffMins / 60)}:${(diffMins % 60).toString().padStart(2, '0')}`;
+                                            } else {
+                                                if (diffMins >= 480) {
+                                                    tTotal = "Full Day";
+                                                    let ext = diffMins - 480;
+                                                    if (ext > 0) tBreak = `${Math.floor(ext / 60)}:${(ext % 60).toString().padStart(2, '0')}`;
+                                                } else {
+                                                    tTotal = `${Math.floor(diffMins / 60)}:${(diffMins % 60).toString().padStart(2, '0')}`;
+                                                }
                                             }
                                         } else {
                                             let onePM = new Date(roundedOut);
@@ -1551,12 +1612,16 @@
                                     let diff = Math.max(0, outM - inM);
                                     
                                     if (isSignifi) {
-                                        if (diff >= 480) {
-                                            tTotal = "Full Day";
-                                            let ext = diff - 480;
-                                            if (ext > 0) tBreak = `${Math.floor(ext / 60)}:${(ext % 60).toString().padStart(2, '0')}`;
-                                        } else {
+                                        if (isHourly) {
                                             tTotal = `${Math.floor(diff / 60)}:${(diff % 60).toString().padStart(2, '0')}`;
+                                        } else {
+                                            if (diff >= 480) {
+                                                tTotal = "Full Day";
+                                                let ext = diff - 480;
+                                                if (ext > 0) tBreak = `${Math.floor(ext / 60)}:${(ext % 60).toString().padStart(2, '0')}`;
+                                            } else {
+                                                tTotal = `${Math.floor(diff / 60)}:${(diff % 60).toString().padStart(2, '0')}`;
+                                            }
                                         }
                                     } else {
                                         let bM = parseTimeStr(tBreak);
@@ -1584,10 +1649,10 @@
 
                                 let tTotalColor = (tTotal.toLowerCase() === 'off') ? 'red' : 'inherit';
 
-                                rowIn += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${inId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="in" value="${tIn}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}')"></td>`;
-                                rowOut += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${outId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="out" value="${tOut}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}')"></td>`;
-                                rowBreak += `<td class="row-break" style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${breakId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="break" value="${tBreak}" class="time-input" style="color: ${isSignifi ? '#28a745' : 'red'}; font-weight: ${isSignifi ? 'bold' : 'normal'};" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}')"></td>`;
-                                rowTotal += `<td style="border: 1px solid #000; padding: 0; ${bgTotalRow}"><input type="text" list="${datalistId}" id="${totalId}" data-empid="${emp.id}" data-emptype="${emp.type}" data-date="${dateStr}" data-field="total" data-original="${tTotal}" data-formula="${excelFormula}" value="${tTotal}" class="time-input total-input" style="font-weight:bold; border:none; text-align:center; width:100%; background:transparent; color:${tTotalColor};" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}')"></td>`;
+                                rowIn += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${inId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="in" value="${tIn}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}', '${payType}')"></td>`;
+                                rowOut += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${outId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="out" value="${tOut}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}', '${payType}')"></td>`;
+                                rowBreak += `<td class="row-break" style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${breakId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="break" value="${tBreak}" class="time-input" style="color: ${isSignifi ? '#28a745' : 'red'}; font-weight: ${isSignifi ? 'bold' : 'normal'};" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}', '${payType}')" ${isHourly ? 'readonly' : ''}></td>`;
+                                rowTotal += `<td style="border: 1px solid #000; padding: 0; ${bgTotalRow}"><input type="text" list="${datalistId}" id="${totalId}" data-empid="${emp.id}" data-emptype="${emp.type}" data-date="${dateStr}" data-field="total" data-original="${tTotal}" data-formula="${excelFormula}" value="${tTotal}" class="time-input total-input" style="font-weight:bold; border:none; text-align:center; width:100%; background:transparent; color:${tTotalColor};" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}', '${payType}')"></td>`;
                             }
 
                             let defaultNote = notesData[emp.id] ? notesData[emp.id] : `Regular ${dept} Projects`;
@@ -1599,8 +1664,6 @@
                             let lastExtraCell = `${getColLtr(2 + rangeDates.length - 1)}${empStartRow + 2}`;
                             
                             let empTotalFormula = `=SUM(${firstTotCell}:${lastTotCell})`;
-                            let fmtFullDaysFormula = `=COUNTIF(${firstTotCell}:${lastTotCell}, "*Full Day*") + COUNTIF(${firstTotCell}:${lastTotCell}, "*Vacation*") + COUNTIF(${firstTotCell}:${lastTotCell}, "*Sick*") + COUNTIF(${firstTotCell}:${lastTotCell}, "*Lieu*") + COUNTIF(${firstTotCell}:${lastTotCell}, "*Stat Holiday*")`;
-                            let fmtExtraHrsFormula = `=SUM(${firstExtraCell}:${lastExtraCell})`;
                             
                             let totColLtr = getColLtr(2 + rangeDates.length);
                             deptTotalRefs.push(`${totColLtr}${empStartRow}`);
@@ -1610,8 +1673,9 @@
                             html += `<td style="width:4%; border: 1px solid #000; background-color: #ffffff; text-align: center;">In</td>${rowIn}`;
                             
                             if (isSignifi) {
-                                html += `<td id="fulldays_${gIdx}_${eIdx}" class="group-fulldays-${gIdx}" data-formula='${fmtFullDaysFormula}' rowspan="4" style="font-weight:bold; font-size: 18px; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;">0</td>`;
-                                html += `<td id="extrahrs_${gIdx}_${eIdx}" class="group-extrahrs-${gIdx}" data-formula='${fmtExtraHrsFormula}' rowspan="4" style="font-weight:bold; font-size: 18px; color: #28a745; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff; mso-number-format:'\\[h\\]\\:mm';">0:00</td>`;
+                                html += `<td id="fulldays_${gIdx}_${eIdx}" class="group-fulldays-${gIdx}" rowspan="4" style="font-weight:bold; font-size: 18px; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;"></td>`;
+                                let extraHrsBg = isHourly ? "#f4f7f6" : "#ffffff";
+                                html += `<td id="extrahrs_${gIdx}_${eIdx}" class="group-extrahrs-${gIdx}" rowspan="4" style="font-weight:bold; font-size: 18px; color: #28a745; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: ${extraHrsBg}; mso-number-format:'\\[h\\]\\:mm';"></td>`;
                                 html += `<td id="leaves_${gIdx}_${eIdx}" class="group-leaves-${gIdx}" rowspan="4" style="color:#007bff; font-weight:bold; font-size: 16px; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;"></td>`;
                             } else {
                                 html += `<td id="emptotal_${gIdx}_${eIdx}" class="group-emptotal-${gIdx}" data-formula="${empTotalFormula}" rowspan="4" style="font-weight:bold; font-size: 14px; border: 1px solid #000; text-align: center; vertical-align: middle; mso-number-format:'\\[h\\]\\:mm'; background-color: #ffffff;"></td>`;
@@ -1637,8 +1701,8 @@
                         
                         if (isSignifi) {
                             html += `<td colspan="${totalRowLeftSpan}" style="border: 2px solid #000; font-weight:bold; text-align: center;">Department Totals</td>`;
-                            html += `<td id="grouptotal_fulldays_${gIdx}" style="border: 2px solid #000; font-weight:bold; font-size: 16px; text-align: center;">0</td>`;
-                            html += `<td id="grouptotal_extrahrs_${gIdx}" class="text-green" style="border: 2px solid #000; font-weight:bold; font-size: 16px; color: #28a745; text-align: center; mso-number-format:'\\[h\\]\\:mm';">0:00</td>`;
+                            html += `<td id="grouptotal_fulldays_${gIdx}" style="border: 2px solid #000; font-weight:bold; font-size: 16px; text-align: center;"></td>`;
+                            html += `<td id="grouptotal_extrahrs_${gIdx}" class="text-green" style="border: 2px solid #000; font-weight:bold; font-size: 16px; color: #28a745; text-align: center; mso-number-format:'\\[h\\]\\:mm';"></td>`;
                             html += `<td colspan="2" style="border: 2px solid #000;"></td>`;
                         } else {
                             let groupTotalFormula = `=SUM(${deptTotalRefs.join(',')})`;
