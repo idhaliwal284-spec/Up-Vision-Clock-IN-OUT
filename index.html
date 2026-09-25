@@ -432,15 +432,22 @@
             }
 
             let currentTotal = totalInput.value.trim().toLowerCase();
-            let hasLeaveText = (currentTotal.includes('vacation') || currentTotal.includes('sick') || currentTotal.includes('paid lieu') || currentTotal.includes('off') || currentTotal.includes('stat holiday'));
+            let hasLeaveText = (currentTotal.includes('vacation') || currentTotal.includes('sick') || currentTotal.includes('paid lieu') || currentTotal.includes('off') || currentTotal.includes('stat holiday') || currentTotal.includes('full day'));
             
-            // Apply calculations while protecting text leave entries
+            // Apply calculations while protecting text entries
             if (!hasLeaveText || (inVal && outVal && outVal.toLowerCase() !== "missed")) {
                 if (newTotal !== "") {
                     totalInput.value = newTotal;
                 } else if (!hasLeaveText) {
                     totalInput.value = "";
                 }
+            }
+            
+            // Re-check input value dynamically to color "Off" correctly
+            if (totalInput.value.trim().toLowerCase() === 'off') {
+                totalInput.style.color = 'red';
+            } else {
+                totalInput.style.color = 'inherit';
             }
             
             // Also apply extra hours back into UI if it's Signifi
@@ -1389,19 +1396,19 @@
                         gIdx++;
                         
                         let isSignifi = (agency === 'Signifi');
-                        let tableTitle = `${dept} - Timesheet${isSignifi ? '' : ' - ' + agency}`;
+                        let tableTitle = `${isSignifi ? 'Signifi' : agency} ${dept} - Timesheet`;
                         let firstColHeader = `${dept} - timesheet at Tech Avn.`;
                         
                         // Signifi has 4 distinct columns at the end, Agencies have 3
-                        let titleColspan = rangeDates.length + (isSignifi ? 7 : 6);
+                        let titleColspan = rangeDates.length + (isSignifi ? 6 : 5);
 
-                        html += `<table class="report-table" style="border: 2px solid #000; border-collapse: collapse; font-family: Calibri, sans-serif; font-size: 11pt;">`;
+                        html += `<table class="report-table" style="table-layout: fixed; width: 100%; border: 2px solid #000; border-collapse: collapse; font-family: Calibri, sans-serif; font-size: 11pt;">`;
                         
                         html += `<tr><td colspan="${titleColspan}" class="report-header-title" style="background-color: #bfbfbf; border: 2px solid #000; font-size: 18px; padding: 10px; font-weight: bold; text-align: center;">${tableTitle}</td></tr>`;
                         excelRow++;
                         
                         html += `<tr style="background-color: #d9d9d9;">`;
-                        html += `<td rowspan="2" colspan="3" style="width:20%; border: 1px solid #000; font-weight: bold; text-align: center; vertical-align: middle;">${firstColHeader}</td>`;
+                        html += `<td rowspan="2" colspan="2" style="width:16%; border: 1px solid #000; font-weight: bold; text-align: center; vertical-align: middle;">Names</td>`;
                         
                         for (let i = 0; i < rangeDates.length; i++) { 
                             let d = rangeDates[i];
@@ -1412,14 +1419,14 @@
                         
                         // Differentiated Headers
                         if (isSignifi) {
-                            html += `<td rowspan="2" style="width:6%; border: 1px solid #000; font-weight: bold; background-color: #d9d9d9; text-align: center; vertical-align: middle;">Total Full Days</td>`;
-                            html += `<td rowspan="2" style="width:6%; border: 1px solid #000; font-weight: bold; background-color: #d9d9d9; text-align: center; vertical-align: middle;">Total Extra Hours</td>`;
+                            html += `<td rowspan="2" style="width:7%; border: 1px solid #000; font-weight: bold; background-color: #d9d9d9; text-align: center; vertical-align: middle;">Total Full Days</td>`;
+                            html += `<td rowspan="2" style="width:8%; border: 1px solid #000; font-weight: bold; background-color: #d9d9d9; text-align: center; vertical-align: middle;">Total Extra Hours</td>`;
                             html += `<td rowspan="2" style="width:10%; border: 1px solid #000; font-weight: bold; background-color: #d9d9d9; text-align: center; vertical-align: middle;">Total Leaves<br><small>(Vac/Sick/Lieu)</small></td>`;
                             html += `<td rowspan="2" style="width:10%; border: 1px solid #000; font-weight: bold; text-align: center; vertical-align: middle;">Note for Extra hours</td></tr>`;
                         } else {
                             html += `<td rowspan="2" style="width:9%; border: 1px solid #000; font-weight: bold; background-color: #d9d9d9; text-align: center; vertical-align: middle;">Total working hours</td>`;
                             html += `<td rowspan="2" style="width:10%; border: 1px solid #000; font-weight: bold; text-align: center; vertical-align: middle;">Working area</td>`;
-                            html += `<td rowspan="2" style="width:12%; border: 1px solid #000; font-weight: bold; text-align: center; vertical-align: middle;">Note for Extra hours</td></tr>`;
+                            html += `<td rowspan="2" style="width:16%; border: 1px solid #000; font-weight: bold; text-align: center; vertical-align: middle;">Note for Extra hours</td></tr>`;
                         }
                         
                         excelRow++;
@@ -1472,7 +1479,6 @@
                             datalistHtml += `</datalist>`;
                             
                             let rowIn = "", rowOut = "", rowBreak = "", rowTotal = "";
-                            let displayAgencyCol = isSignifi ? "Signifi" : (emp.agencyName || "Agency");
                             
                             for (let i = 0; i < rangeDates.length; i++) {
                                 let d = rangeDates[i];
@@ -1565,7 +1571,7 @@
                                 let breakId = `break_${gIdx}_${eIdx}_${i}`;
                                 let totalId = `total_${gIdx}_${eIdx}_${i}`;
 
-                                let colLtr = getColLtr(3 + i);
+                                let colLtr = getColLtr(2 + i);
                                 let inCell = `${colLtr}${empStartRow}`;
                                 let outCell = `${colLtr}${empStartRow + 1}`;
                                 let breakCell = `${colLtr}${empStartRow + 2}`;
@@ -1574,37 +1580,38 @@
                                 let excelFormula = `=IFERROR(${outCell}-${inCell}-IF(${breakCell}="",0,${breakCell}), 0)`;
                                 if (isSignifi) excelFormula = ""; // Signifi relies entirely on string text logic for 'Total' now
 
+                                let tTotalColor = (tTotal.toLowerCase() === 'off') ? 'red' : 'inherit';
+
                                 rowIn += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${inId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="in" value="${tIn}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}')"></td>`;
                                 rowOut += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${outId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="out" value="${tOut}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}')"></td>`;
-                                rowBreak += `<td class="row-break" style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${breakId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="break" value="${tBreak}" class="time-input" style="color: ${isSignifi ? '#007bff' : 'red'};" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}')"></td>`;
-                                rowTotal += `<td style="border: 1px solid #000; padding: 0; ${bgTotalRow}"><input type="text" list="${datalistId}" id="${totalId}" data-empid="${emp.id}" data-emptype="${emp.type}" data-vacused="${emp.vacationUsed||0}" data-sickused="${emp.sickUsed||0}" data-lieuused="${emp.lieuUsed||0}" data-date="${dateStr}" data-field="total" data-formula="${excelFormula}" value="${tTotal}" class="time-input total-input" style="font-weight:bold; border:none; text-align:center; width:100%; background:transparent; color:inherit;" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}')"></td>`;
+                                rowBreak += `<td class="row-break" style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${breakId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="break" value="${tBreak}" class="time-input" style="color: ${isSignifi ? '#28a745' : 'red'}; font-weight: ${isSignifi ? 'bold' : 'normal'};" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}')"></td>`;
+                                rowTotal += `<td style="border: 1px solid #000; padding: 0; ${bgTotalRow}"><input type="text" list="${datalistId}" id="${totalId}" data-empid="${emp.id}" data-emptype="${emp.type}" data-vacused="${emp.vacationUsed||0}" data-sickused="${emp.sickUsed||0}" data-lieuused="${emp.lieuUsed||0}" data-date="${dateStr}" data-field="total" data-formula="${excelFormula}" value="${tTotal}" class="time-input total-input" style="font-weight:bold; border:none; text-align:center; width:100%; background:transparent; color:${tTotalColor};" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}')"></td>`;
                             }
 
                             let defaultNote = notesData[emp.id] ? notesData[emp.id] : `Regular ${dept} Projects`;
 
-                            let firstTotCell = `${getColLtr(3)}${empStartRow + 3}`;
-                            let lastTotCell = `${getColLtr(3 + rangeDates.length - 1)}${empStartRow + 3}`;
+                            let firstTotCell = `${getColLtr(2)}${empStartRow + 3}`;
+                            let lastTotCell = `${getColLtr(2 + rangeDates.length - 1)}${empStartRow + 3}`;
                             
-                            let firstExtraCell = `${getColLtr(3)}${empStartRow + 2}`;
-                            let lastExtraCell = `${getColLtr(3 + rangeDates.length - 1)}${empStartRow + 2}`;
+                            let firstExtraCell = `${getColLtr(2)}${empStartRow + 2}`;
+                            let lastExtraCell = `${getColLtr(2 + rangeDates.length - 1)}${empStartRow + 2}`;
                             
                             let empTotalFormula = `=SUM(${firstTotCell}:${lastTotCell})`;
                             let fmtFullDaysFormula = `=COUNTIF(${firstTotCell}:${lastTotCell}, "*Full Day*") + COUNTIF(${firstTotCell}:${lastTotCell}, "*Vacation*") + COUNTIF(${firstTotCell}:${lastTotCell}, "*Sick*") + COUNTIF(${firstTotCell}:${lastTotCell}, "*Lieu*") + COUNTIF(${firstTotCell}:${lastTotCell}, "*Stat Holiday*")`;
                             let fmtExtraHrsFormula = `=SUM(${firstExtraCell}:${lastExtraCell})`;
                             
-                            let totColLtr = getColLtr(3 + rangeDates.length);
+                            let totColLtr = getColLtr(2 + rangeDates.length);
                             deptTotalRefs.push(`${totColLtr}${empStartRow}`);
 
                             html += `<tr>`;
-                            html += `<td rowspan="4" style="width:10%; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;">${displayAgencyCol}</td>`;
-                            html += `<td rowspan="4" style="width:10%; font-weight:bold; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;">${emp.name}${datalistHtml}</td>`;
-                            html += `<td style="border: 1px solid #000; background-color: #ffffff; text-align: center;">In</td>${rowIn}`;
+                            html += `<td rowspan="4" style="width:12%; font-weight:bold; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;">${emp.name}${datalistHtml}</td>`;
+                            html += `<td style="width:4%; border: 1px solid #000; background-color: #ffffff; text-align: center;">In</td>${rowIn}`;
                             
                             // Right Side Block Layout Changes based on Agency vs Signifi
                             if (isSignifi) {
-                                html += `<td id="fulldays_${gIdx}_${eIdx}" class="group-fulldays-${gIdx}" data-formula='${fmtFullDaysFormula}' rowspan="4" style="font-weight:bold; font-size: 14px; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;">0</td>`;
-                                html += `<td id="extrahrs_${gIdx}_${eIdx}" class="group-extrahrs-${gIdx}" data-formula='${fmtExtraHrsFormula}' rowspan="4" style="font-weight:bold; font-size: 14px; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff; mso-number-format:'\\[h\\]\\:mm';">0:00</td>`;
-                                html += `<td id="leaves_${gIdx}_${eIdx}" class="group-leaves-${gIdx}" rowspan="4" style="color:#007bff; font-size: 12px; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;"></td>`;
+                                html += `<td id="fulldays_${gIdx}_${eIdx}" class="group-fulldays-${gIdx}" data-formula='${fmtFullDaysFormula}' rowspan="4" style="font-weight:bold; font-size: 18px; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;">0</td>`;
+                                html += `<td id="extrahrs_${gIdx}_${eIdx}" class="group-extrahrs-${gIdx}" data-formula='${fmtExtraHrsFormula}' rowspan="4" style="font-weight:bold; font-size: 18px; color: #28a745; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff; mso-number-format:'\\[h\\]\\:mm';">0:00</td>`;
+                                html += `<td id="leaves_${gIdx}_${eIdx}" class="group-leaves-${gIdx}" rowspan="4" style="color:#007bff; font-weight:bold; font-size: 16px; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;"></td>`;
                             } else {
                                 html += `<td id="emptotal_${gIdx}_${eIdx}" class="group-emptotal-${gIdx}" data-formula="${empTotalFormula}" rowspan="4" style="font-weight:bold; font-size: 14px; border: 1px solid #000; text-align: center; vertical-align: middle; mso-number-format:'\\[h\\]\\:mm'; background-color: #ffffff;"></td>`;
                                 html += `<td rowspan="4" class="text-green" style="border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;">${dept}</td>`;
@@ -1614,7 +1621,7 @@
                                 <input type="text" data-empid="${emp.id}" data-field="note" value="${defaultNote}" class="note-input" style="width: 100%; height: 100%; min-height: 50px; border: none; text-align: center; background: transparent; font-family: inherit; font-size: inherit;">
                             </td></tr>`;
                             
-                            let row3Label = isSignifi ? "Extra<br>Hours" : "Break";
+                            let row3Label = isSignifi ? "Extra&nbsp;Hours" : "Break";
                             
                             html += `<tr><td style="border: 1px solid #000; background-color: #ffffff; text-align: center;">Out</td>${rowOut}</tr>`;
                             html += `<tr><td style="border: 1px solid #000; background-color: #ffffff; text-align: center;">${row3Label}</td>${rowBreak}</tr>`;
@@ -1623,14 +1630,14 @@
                             excelRow += 4;
                         });
                         
-                        let totalRowLeftSpan = 3 + rangeDates.length;
+                        let totalRowLeftSpan = 2 + rangeDates.length; // Names(1) + In/Out(1) + Dates(7)
                         
                         html += `<tr class="totals-row" style="background-color: #a6a6a6;">`;
                         
                         if (isSignifi) {
                             html += `<td colspan="${totalRowLeftSpan}" style="border: 2px solid #000; font-weight:bold; text-align: center;">Department Totals</td>`;
-                            html += `<td id="grouptotal_fulldays_${gIdx}" style="border: 2px solid #000; font-weight:bold; text-align: center;">0</td>`;
-                            html += `<td id="grouptotal_extrahrs_${gIdx}" class="text-green" style="border: 2px solid #000; font-weight:bold; text-align: center; mso-number-format:'\\[h\\]\\:mm';">0:00</td>`;
+                            html += `<td id="grouptotal_fulldays_${gIdx}" style="border: 2px solid #000; font-weight:bold; font-size: 16px; text-align: center;">0</td>`;
+                            html += `<td id="grouptotal_extrahrs_${gIdx}" class="text-green" style="border: 2px solid #000; font-weight:bold; font-size: 16px; color: #28a745; text-align: center; mso-number-format:'\\[h\\]\\:mm';">0:00</td>`;
                             html += `<td colspan="2" style="border: 2px solid #000;"></td>`;
                         } else {
                             let groupTotalFormula = `=SUM(${deptTotalRefs.join(',')})`;
