@@ -16,7 +16,6 @@
         /* --- FIXED CORNER LAYOUTS --- */
         .top-left-title { position: absolute; top: 25px; left: 30px; font-size: 1.8rem; color: #333; margin: 0; font-weight: bold; z-index: 10; }
         .top-center-logo { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); max-width: 250px; max-height: 80px; object-fit: contain; z-index: 10; }
-        .bottom-right-credit { position: absolute; bottom: 15px; right: 30px; font-size: 1rem; color: #777; font-style: italic; z-index: 10; }
         
         /* Dashboard DB Status Indicator */
         #connection-status { position: absolute; top: 35px; right: 175px; width: 16px; height: 16px; border-radius: 50%; background-color: #ffc107; z-index: 10; box-shadow: 0 0 5px rgba(0,0,0,0.2); border: 2px solid #fff; transition: 0.3s; }
@@ -78,6 +77,7 @@
         .text-green { color: #00b050; font-weight: bold; }
         .row-break { color: #dc3545; }
         
+        /* Interactive Input Styles for Report */
         .note-input, .time-input { width: 100%; border: 1px solid transparent; text-align: center; background: transparent; font-family: Calibri, sans-serif; font-size: inherit; padding: 4px; box-sizing: border-box; color: inherit; }
         .note-input:hover, .note-input:focus, .time-input:hover, .time-input:focus { border: 1px solid #ccc; background: #fff; outline: none; }
         
@@ -97,7 +97,6 @@
     <!-- Status Indicator -->
     <div id="connection-status" title="Checking database connection..."></div>
     <button id="admin-btn" onclick="showLoginModal()">Admin Access</button>
-    <div class="bottom-right-credit">Created by Ishanjeet Dhaliwal</div>
 
     <!-- Kiosk View -->
     <div id="kiosk-view">
@@ -129,6 +128,7 @@
             <h3>Admin Login</h3>
             <div class="form-group" style="text-align: left;">
                 <label>Username</label>
+                <!-- Defaulted to 'admin' so you don't have to type it every time -->
                 <input type="text" id="admin-username" value="admin" placeholder="e.g. admin" style="width:100%; padding:10px; font-size: 1.2rem;" onkeypress="handleLoginEnter(event)">
             </div>
             <div class="form-group" style="text-align: left;">
@@ -160,6 +160,7 @@
     <div id="employee-modal" class="modal">
         <div class="modal-content">
             <h3 id="emp-modal-title">Add New Employee</h3>
+            <!-- Original ID to track changes -->
             <input type="hidden" id="emp-original-id">
             
             <div class="form-group">
@@ -172,6 +173,7 @@
                 <input type="text" id="emp-name" placeholder="John Doe">
             </div>
             
+            <!-- Dynamic Department Dropdown -->
             <div class="form-group">
                 <label>Working Area (Department)</label>
                 <select id="emp-dept-select" onchange="toggleDeptCustom()">
@@ -183,6 +185,7 @@
                 <input type="text" id="emp-dept-custom" placeholder="Type new department name..." style="display:none; margin-top:10px;">
             </div>
             
+            <!-- Dynamic Employment Type Dropdown -->
             <div class="form-group">
                 <label>Employment / Agency Type</label>
                 <select id="emp-type-select" onchange="toggleTypeCustom()">
@@ -411,18 +414,24 @@
             }
         });
 
-        manualInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') initiatePunch();
-        });
-
+        // SCAN LOCK: Prevent double scans from quick physical scanners
+        let isProcessingPunch = false;
         let pendingBadgeId = null;
         let pendingAction = null;
         let pendingEmpData = null;
 
+        manualInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') initiatePunch();
+        });
+
         async function initiatePunch() {
+            if (isProcessingPunch) return; // Ignore duplicate Enter keypresses
+
             const badgeId = manualInput.value.trim();
-            manualInput.value = ''; 
             if(!badgeId) return;
+
+            isProcessingPunch = true; // Lock the scanner
+            manualInput.value = ''; 
 
             const statusDiv = document.getElementById('status-display');
             statusDiv.style.display = 'block';
@@ -436,7 +445,10 @@
                 if (!empDoc.exists) {
                     statusDiv.className = 'status-message error';
                     statusDiv.innerText = 'Badge not found. Please contact Admin.';
-                    setTimeout(() => statusDiv.style.display = 'none', 3000);
+                    setTimeout(() => {
+                        statusDiv.style.display = 'none';
+                        isProcessingPunch = false; // Unlock
+                    }, 3000);
                     return;
                 }
                 
@@ -477,7 +489,10 @@
                 console.error(err);
                 statusDiv.className = 'status-message error';
                 statusDiv.innerText = 'Database Error: ' + err.message;
-                setTimeout(() => statusDiv.style.display = 'none', 5000);
+                setTimeout(() => {
+                    statusDiv.style.display = 'none';
+                    isProcessingPunch = false; // Unlock
+                }, 5000);
             }
         }
 
@@ -499,14 +514,18 @@
                 statusDiv.className = 'status-message success';
                 statusDiv.innerText = pendingAction === 'IN' ? `Welcome, ${pendingEmpData.name}! Shift Started.` : `Goodbye, ${pendingEmpData.name}! Shift Ended.`;
                 
-                setTimeout(() => statusDiv.style.display = 'none', 3500);
-                manualInput.focus();
+                setTimeout(() => {
+                    statusDiv.style.display = 'none';
+                    isProcessingPunch = false; // Unlock
+                    manualInput.focus();
+                }, 3500);
 
             } catch (err) {
                 console.error(err);
                 statusDiv.style.display = 'block';
                 statusDiv.className = 'status-message error';
                 statusDiv.innerText = "Error saving punch. " + err.message;
+                isProcessingPunch = false; // Unlock
             }
         }
 
@@ -522,7 +541,11 @@
 
         function closeModal(id) {
             document.getElementById(id).style.display = 'none';
-            if(id === 'confirm-modal' || id === 'login-modal') manualInput.focus();
+            if(id === 'confirm-modal') {
+                isProcessingPunch = false; // Unlock if cancelled
+                manualInput.focus();
+            }
+            if(id === 'login-modal') manualInput.focus();
         }
 
         function handleLoginEnter(e) {
@@ -613,7 +636,6 @@
             if (tabId === 'reports') {
                 if(!document.getElementById('report-start').value) {
                     
-                    // Generate local dates properly
                     let d = new Date();
                     let day = d.getDay(), diff = d.getDate() - day + (day == 0 ? -6 : 1);
                     d.setDate(diff);
