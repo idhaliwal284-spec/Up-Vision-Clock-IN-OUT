@@ -80,7 +80,7 @@
         /* Interactive Input Styles for Report */
         .note-input, .time-input { width: 100%; border: 1px solid transparent; text-align: center; background: transparent; font-family: Calibri, sans-serif; font-size: inherit; padding: 4px; box-sizing: border-box; color: inherit; }
         .note-input:hover, .note-input:focus, .time-input:hover, .time-input:focus { border: 1px solid #ccc; background: #fff; outline: none; }
-        
+
         /* Force Dropdown Arrow to appear on datalist inputs */
         .total-input::-webkit-calendar-picker-indicator {
             opacity: 0.6;
@@ -513,7 +513,7 @@
                 pendingEmpData = empDoc.data();
                 pendingBadgeId = badgeId;
                 
-                // BYPASS FIREBASE INDEX REQUIREMENT BY PULLING DIRECTLY AND FILTERING IN JS
+                // PULL DOCUMENTS DIRECTLY - NO INDEX REQUIRED
                 const shiftQuery = await db.collection('shifts').where('employeeId', '==', badgeId).get();
 
                 pendingAction = 'IN';
