@@ -129,7 +129,6 @@
             <h3>Admin Login</h3>
             <div class="form-group" style="text-align: left;">
                 <label>Username</label>
-                <!-- Defaulted to 'admin' so you don't have to type it every time -->
                 <input type="text" id="admin-username" value="admin" placeholder="e.g. admin" style="width:100%; padding:10px; font-size: 1.2rem;" onkeypress="handleLoginEnter(event)">
             </div>
             <div class="form-group" style="text-align: left;">
@@ -161,7 +160,6 @@
     <div id="employee-modal" class="modal">
         <div class="modal-content">
             <h3 id="emp-modal-title">Add New Employee</h3>
-            <!-- Original ID to track changes -->
             <input type="hidden" id="emp-original-id">
             
             <div class="form-group">
@@ -174,7 +172,6 @@
                 <input type="text" id="emp-name" placeholder="John Doe">
             </div>
             
-            <!-- Dynamic Department Dropdown -->
             <div class="form-group">
                 <label>Working Area (Department)</label>
                 <select id="emp-dept-select" onchange="toggleDeptCustom()">
@@ -186,7 +183,6 @@
                 <input type="text" id="emp-dept-custom" placeholder="Type new department name..." style="display:none; margin-top:10px;">
             </div>
             
-            <!-- Dynamic Employment Type Dropdown -->
             <div class="form-group">
                 <label>Employment / Agency Type</label>
                 <select id="emp-type-select" onchange="toggleTypeCustom()">
@@ -329,6 +325,53 @@
     </div>
 
     <script>
+        // === LIVE TIMESHEET RECALCULATION ENGINE ===
+        window.recalcTime = function(gIdx, eIdx, colIdx, numCols) {
+            const inVal = document.getElementById(`in-${gIdx}-${eIdx}-${colIdx}`).value.trim();
+            const outVal = document.getElementById(`out-${gIdx}-${eIdx}-${colIdx}`).value.trim();
+            const breakVal = document.getElementById(`break-${gIdx}-${eIdx}-${colIdx}`).value.trim();
+
+            const parseTime = (str) => {
+                if(!str || !str.includes(':')) return 0;
+                let parts = str.split(':');
+                return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+            };
+
+            let netMins = 0;
+            if (inVal && outVal && outVal.toLowerCase() !== "missed") {
+                let inM = parseTime(inVal);
+                let outM = parseTime(outVal);
+                let bM = parseTime(breakVal);
+                
+                if (outM >= inM) {
+                    netMins = Math.max(0, (outM - inM) - bM);
+                }
+            }
+
+            const formatTime = (mins) => {
+                let h = Math.floor(mins / 60);
+                let m = mins % 60;
+                return h + ":" + m.toString().padStart(2, '0');
+            };
+
+            // Update daily total
+            document.getElementById(`total-${gIdx}-${eIdx}-${colIdx}`).innerText = formatTime(netMins);
+
+            // Update Employee Total
+            let empTotal = 0;
+            for(let i=0; i<numCols; i++) {
+                empTotal += parseTime(document.getElementById(`total-${gIdx}-${eIdx}-${i}`).innerText);
+            }
+            document.getElementById(`emptotal-${gIdx}-${eIdx}`).innerText = formatTime(empTotal);
+
+            // Update Group (Department/Agency) Total
+            let groupTotal = 0;
+            document.querySelectorAll(`.group-emptotal-${gIdx}`).forEach(el => {
+                groupTotal += parseTime(el.innerText);
+            });
+            document.getElementById(`grouptotal-${gIdx}`).innerText = formatTime(groupTotal);
+        };
+
         // === 1. FIREBASE SETUP ===
         const firebaseConfig = {
             apiKey: "AIzaSyDTjEJ3N_l1znPppygGTgGeClIrt092A7Y",
@@ -929,7 +972,6 @@
                 return;
             }
             
-            // Generate LOCAL dates correctly without UTC timezone shift
             const [sYear, sMonth, sDay] = startStr.split('-');
             const startD = new Date(sYear, sMonth - 1, sDay);
             
@@ -1022,9 +1064,11 @@
 
                 let html = "";
                 const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+                let gIdx = 0;
 
                 for (let agency in groups) {
                     for (let dept in groups[agency]) {
+                        gIdx++;
                         
                         let tableTitle = `${dept} - Timesheet${agency === 'Signifi' ? '' : ' - ' + agency}`;
                         let firstColHeader = `${dept} - timesheet at Tech Avn.`;
@@ -1060,8 +1104,10 @@
                         html += `</tr>`;
 
                         let deptTotalMins = 0;
+                        let eIdx = 0;
 
                         groups[agency][dept].forEach(emp => {
+                            eIdx++;
                             let empTotalMins = 0;
                             let rowIn = "", rowOut = "", rowBreak = "", rowTotal = "";
                             let isAgency = emp.type === "Agency";
@@ -1081,7 +1127,6 @@
                                 let bg = isWeekend ? 'background-color: #bfbfbf;' : 'background-color: #ffffff;';
                                 let bgTotalRow = isWeekend ? 'background-color: #bfbfbf;' : 'background-color: #e6e6e6;';
                                 
-                                // Default blank values so Excel renders empty cells cleanly
                                 let tIn = "", tOut = "", tBreak = "", tTotal = "0:00";
                                 
                                 if (dayData && dayData.in) {
@@ -1121,10 +1166,15 @@
                                     }
                                 }
                                 
-                                rowIn += `<td style="border: 1px solid #000; padding: 0; ${bg}"><input type="text" value="${tIn}" class="time-input"></td>`;
-                                rowOut += `<td style="border: 1px solid #000; padding: 0; ${bg}"><input type="text" value="${tOut}" class="time-input"></td>`;
-                                rowBreak += `<td class="row-break" style="border: 1px solid #000; padding: 0; ${bg}"><input type="text" value="${tBreak.replace(/<[^>]+>/g, '')}" class="time-input" style="color: red;"></td>`;
-                                rowTotal += `<td style="font-weight:bold; border: 1px solid #000; ${bgTotalRow}">${tTotal}</td>`;
+                                let inId = `in-${gIdx}-${eIdx}-${i}`;
+                                let outId = `out-${gIdx}-${eIdx}-${i}`;
+                                let breakId = `break-${gIdx}-${eIdx}-${i}`;
+                                let totalId = `total-${gIdx}-${eIdx}-${i}`;
+
+                                rowIn += `<td style="border: 1px solid #000; padding: 0; ${bg}"><input type="text" id="${inId}" value="${tIn}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
+                                rowOut += `<td style="border: 1px solid #000; padding: 0; ${bg}"><input type="text" id="${outId}" value="${tOut}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
+                                rowBreak += `<td class="row-break" style="border: 1px solid #000; padding: 0; ${bg}"><input type="text" id="${breakId}" value="${tBreak.replace(/<[^>]+>/g, '')}" class="time-input" style="color: red;" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
+                                rowTotal += `<td id="${totalId}" style="font-weight:bold; border: 1px solid #000; ${bgTotalRow}">${tTotal}</td>`;
                             }
 
                             let fmtEmpTotal = `${Math.floor(empTotalMins / 60)}:${(empTotalMins % 60).toString().padStart(2, '0')}`;
@@ -1134,7 +1184,7 @@
                             html += `<td rowspan="4" style="width:10%; font-weight:bold; border: 1px solid #000; background-color: #ffffff;">${emp.name}</td>`;
                             html += `<td style="border: 1px solid #000; background-color: #ffffff;">In</td>${rowIn}`;
                             
-                            html += `<td rowspan="4" style="font-weight:bold; font-size: 14px; border: 1px solid #000; vertical-align: middle; background-color: #ffffff;">${fmtEmpTotal}</td>`;
+                            html += `<td id="emptotal-${gIdx}-${eIdx}" class="group-emptotal-${gIdx}" rowspan="4" style="font-weight:bold; font-size: 14px; border: 1px solid #000; vertical-align: middle; background-color: #ffffff;">${fmtEmpTotal}</td>`;
                             html += `<td rowspan="4" class="text-green" style="border: 1px solid #000; vertical-align: middle; background-color: #ffffff;">${dept}</td>`;
                             
                             html += `<td rowspan="4" style="border: 1px solid #000; vertical-align: middle; background-color: #ffffff; padding: 0;">
@@ -1150,7 +1200,7 @@
                         
                         let totalRowLeftSpan = 3 + rangeDates.length;
                         
-                        html += `<tr class="totals-row" style="background-color: #a6a6a6;"><td colspan="${totalRowLeftSpan}" style="border: 2px solid #000; font-weight:bold;">Total hours</td><td class="text-green" style="border: 2px solid #000; font-weight:bold;">${fmtDeptTotal}</td><td colspan="2" style="border: 2px solid #000;"></td></tr></table><br><br>`;
+                        html += `<tr class="totals-row" style="background-color: #a6a6a6;"><td colspan="${totalRowLeftSpan}" style="border: 2px solid #000; font-weight:bold;">Total hours</td><td id="grouptotal-${gIdx}" class="text-green" style="border: 2px solid #000; font-weight:bold;">${fmtDeptTotal}</td><td colspan="2" style="border: 2px solid #000;"></td></tr></table><br><br>`;
                     }
                 }
                 
@@ -1165,10 +1215,8 @@
             const container = document.getElementById('report-container');
             if (container.innerHTML.includes("Loading") || container.innerHTML.includes("No shifts") || container.innerHTML.includes("Error")) return;
             
-            // Clone the container so we don't convert the live UI to uneditable text
             const clone = container.cloneNode(true);
             
-            // Replace all input boxes with plain text spans so Excel can read them
             const originalInputs = container.querySelectorAll('.note-input, .time-input');
             const cloneInputs = clone.querySelectorAll('.note-input, .time-input');
             
