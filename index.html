@@ -40,7 +40,7 @@
 
         /* Modals */
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); justify-content: center; align-items: center; z-index: 1000; }
-        .modal-content { background: #fff; padding: 40px; border-radius: 12px; width: 90%; max-width: 500px; text-align: center; box-shadow: 0 5px 15px rgba(0,0,0,0.3); max-height: 90vh; overflow-y: auto; }
+        .modal-content { background: #fff; padding: 40px; border-radius: 12px; width: 90%; max-width: 550px; text-align: center; box-shadow: 0 5px 15px rgba(0,0,0,0.3); max-height: 90vh; overflow-y: auto; }
         .modal-content h3 { font-size: 2rem; margin-top: 0; }
         .modal-content p { font-size: 1.2rem; margin-bottom: 30px; }
         
@@ -128,7 +128,6 @@
             <h3>Admin Login</h3>
             <div class="form-group" style="text-align: left;">
                 <label>Username</label>
-                <!-- Defaulted to 'admin' so you don't have to type it every time -->
                 <input type="text" id="admin-username" value="admin" placeholder="e.g. admin" style="width:100%; padding:10px; font-size: 1.2rem;" onkeypress="handleLoginEnter(event)">
             </div>
             <div class="form-group" style="text-align: left;">
@@ -160,7 +159,6 @@
     <div id="employee-modal" class="modal">
         <div class="modal-content">
             <h3 id="emp-modal-title">Add New Employee</h3>
-            <!-- Original ID to track changes -->
             <input type="hidden" id="emp-original-id">
             
             <div class="form-group">
@@ -173,28 +171,49 @@
                 <input type="text" id="emp-name" placeholder="John Doe">
             </div>
             
-            <!-- Dynamic Department Dropdown -->
-            <div class="form-group">
-                <label>Working Area (Department)</label>
-                <select id="emp-dept-select" onchange="toggleDeptCustom()">
-                    <option value="Production">Production</option>
-                    <option value="Inventory">Inventory</option>
-                    <option value="Quality">Quality</option>
-                    <option value="custom" style="font-weight: bold;">+ Add more...</option>
-                </select>
-                <input type="text" id="emp-dept-custom" placeholder="Type new department name..." style="display:none; margin-top:10px;">
+            <div style="display: flex; gap: 10px;">
+                <div class="form-group" style="width: 50%;">
+                    <label>Working Area (Department)</label>
+                    <select id="emp-dept-select" onchange="toggleDeptCustom()">
+                        <option value="Production">Production</option>
+                        <option value="Inventory">Inventory</option>
+                        <option value="Quality">Quality</option>
+                        <option value="custom" style="font-weight: bold;">+ Add more...</option>
+                    </select>
+                    <input type="text" id="emp-dept-custom" placeholder="Type new department name..." style="display:none; margin-top:10px;">
+                </div>
+                <div class="form-group" style="width: 50%;">
+                    <label>Employment / Agency Type</label>
+                    <select id="emp-type-select" onchange="toggleTypeCustom()">
+                        <option value="Signifi">Signifi</option>
+                        <option value="T-DOT">T-DOT</option>
+                        <option value="Carrier Club">Carrier Club</option>
+                        <option value="custom" style="font-weight: bold;">+ Add more (New Agency)...</option>
+                    </select>
+                    <input type="text" id="emp-type-custom" placeholder="Type new agency name..." style="display:none; margin-top:10px;">
+                </div>
             </div>
-            
-            <!-- Dynamic Employment Type Dropdown -->
-            <div class="form-group">
-                <label>Employment / Agency Type</label>
-                <select id="emp-type-select" onchange="toggleTypeCustom()">
-                    <option value="Signifi">Signifi</option>
-                    <option value="T-DOT">T-DOT</option>
-                    <option value="Carrier Club">Carrier Club</option>
-                    <option value="custom" style="font-weight: bold;">+ Add more (New Agency)...</option>
-                </select>
-                <input type="text" id="emp-type-custom" placeholder="Type new agency name..." style="display:none; margin-top:10px;">
+
+            <!-- Vacation and Sick Tracking -->
+            <div style="display: flex; gap: 10px;">
+                <div class="form-group" style="width: 50%;">
+                    <label>Vacation Days / Year</label>
+                    <input type="number" id="emp-vacation-total" value="10">
+                </div>
+                <div class="form-group" style="width: 50%;">
+                    <label>Vacations Used</label>
+                    <input type="number" id="emp-vacation-used" value="0">
+                </div>
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <div class="form-group" style="width: 50%;">
+                    <label>Sick Days / Year</label>
+                    <input type="number" id="emp-sick-total" value="5">
+                </div>
+                <div class="form-group" style="width: 50%;">
+                    <label>Sick Days Used</label>
+                    <input type="number" id="emp-sick-used" value="0">
+                </div>
             </div>
 
             <div style="display: flex; gap: 10px; justify-content: center; margin-top: 20px;">
@@ -256,9 +275,9 @@
                     <tr style="background-color: #d9d9d9; font-weight: bold;">
                         <th>Badge ID</th>
                         <th>Name</th>
-                        <th>Department</th>
-                        <th>Type</th>
-                        <th>Agency</th>
+                        <th>Dept / Agency</th>
+                        <th>Vacation (Rem/Tot)</th>
+                        <th>Sick (Rem/Tot)</th>
                         <th style="text-align:center;">Actions</th>
                     </tr>
                 </thead>
@@ -346,6 +365,7 @@
             const inVal = document.getElementById(`in_${gIdx}_${eIdx}_${colIdx}`).value.trim();
             const outVal = document.getElementById(`out_${gIdx}_${eIdx}_${colIdx}`).value.trim();
             const breakVal = document.getElementById(`break_${gIdx}_${eIdx}_${colIdx}`).value.trim();
+            const totalInput = document.getElementById(`total_${gIdx}_${eIdx}_${colIdx}`);
 
             const parseTime = (str) => {
                 if(!str || !str.includes(':')) return 0;
@@ -371,13 +391,21 @@
                 return h + ":" + m.toString().padStart(2, '0');
             };
 
-            // Update daily total in UI
-            document.getElementById(`total_${gIdx}_${eIdx}_${colIdx}`).innerText = formatTime(netMins);
+            let newTotal = formatTime(netMins);
+            let currentTotal = totalInput.value.trim().toLowerCase();
+            
+            // Protect explicit text entries like "Vacation" or "Sick" from being zeroed out
+            if (newTotal === "" && (currentTotal.includes('vacation') || currentTotal.includes('sick'))) {
+                // Do nothing
+            } else {
+                totalInput.value = newTotal;
+            }
 
             // Update Employee Total in UI
             let empTotal = 0;
             for(let i=0; i<numCols; i++) {
-                empTotal += parseTime(document.getElementById(`total_${gIdx}_${eIdx}_${i}`).innerText);
+                let tVal = document.getElementById(`total_${gIdx}_${eIdx}_${i}`).value.trim();
+                empTotal += parseTime(tVal);
             }
             document.getElementById(`emptotal_${gIdx}_${eIdx}`).innerText = formatTime(empTotal);
 
@@ -791,13 +819,17 @@
                 const renderEmployeeRow = (emp) => {
                     const safeEmpJson = JSON.stringify(emp).replace(/"/g, '&quot;');
                     let displayAgency = (emp.type === 'Agency') ? (emp.agencyName || 'Unnamed Agency') : '-';
+                    
+                    let vacRem = (emp.vacationTotal || 0) - (emp.vacationUsed || 0);
+                    let sickRem = (emp.sickTotal || 0) - (emp.sickUsed || 0);
+
                     return `
                         <tr>
                             <td><strong>${emp.id}</strong></td>
                             <td>${emp.name}</td>
-                            <td>${emp.department}</td>
-                            <td>${emp.type}</td>
-                            <td>${displayAgency}</td>
+                            <td>${emp.department} <br><small style="color:gray">${displayAgency}</small></td>
+                            <td>${vacRem} / ${emp.vacationTotal || 0}</td>
+                            <td>${sickRem} / ${emp.sickTotal || 0}</td>
                             <td style="text-align:center;">
                                 <button class="small-btn btn-print" onclick="printBadge('${emp.id}', '${emp.name}', '${emp.department}')">Print</button>
                                 <button class="small-btn btn-edit" onclick="openEmployeeModal(${safeEmpJson})">Edit</button>
@@ -845,6 +877,11 @@
             document.getElementById('emp-type-select').value = 'Signifi';
             document.getElementById('emp-type-custom').value = '';
             
+            document.getElementById('emp-vacation-total').value = '10';
+            document.getElementById('emp-vacation-used').value = '0';
+            document.getElementById('emp-sick-total').value = '5';
+            document.getElementById('emp-sick-used').value = '0';
+            
             toggleDeptCustom();
             toggleTypeCustom();
 
@@ -855,6 +892,11 @@
                 document.getElementById('emp-id').value = empData.id;
                 document.getElementById('emp-name').value = empData.name;
                 
+                if (empData.vacationTotal !== undefined) document.getElementById('emp-vacation-total').value = empData.vacationTotal;
+                if (empData.vacationUsed !== undefined) document.getElementById('emp-vacation-used').value = empData.vacationUsed;
+                if (empData.sickTotal !== undefined) document.getElementById('emp-sick-total').value = empData.sickTotal;
+                if (empData.sickUsed !== undefined) document.getElementById('emp-sick-used').value = empData.sickUsed;
+
                 const predefinedDepts = ['Production', 'Inventory', 'Quality'];
                 if (predefinedDepts.includes(empData.department)) {
                     document.getElementById('emp-dept-select').value = empData.department;
@@ -914,6 +956,11 @@
                 return;
             }
 
+            let vacTotal = parseInt(document.getElementById('emp-vacation-total').value) || 0;
+            let vacUsed = parseInt(document.getElementById('emp-vacation-used').value) || 0;
+            let sickTot = parseInt(document.getElementById('emp-sick-total').value) || 0;
+            let sickUsd = parseInt(document.getElementById('emp-sick-used').value) || 0;
+
             const badgeId = requestedId ? requestedId : Math.floor(100000 + Math.random() * 900000).toString();
             const isNew = !originalId;
 
@@ -927,7 +974,11 @@
                     name: name,
                     department: dept,
                     type: type,
-                    agencyName: agency
+                    agencyName: agency,
+                    vacationTotal: vacTotal,
+                    vacationUsed: vacUsed,
+                    sickTotal: sickTot,
+                    sickUsed: sickUsd
                 });
 
                 closeModal('employee-modal');
@@ -1007,18 +1058,45 @@
                 const batch = db.batch();
                 const timeInputs = document.querySelectorAll('.time-input');
                 const overrideMap = {};
+                const empUpdates = {}; 
                 
                 timeInputs.forEach(input => {
                     const empId = input.dataset.empid;
                     const dateStr = input.dataset.date;
                     const field = input.dataset.field;
+                    let val = input.value.trim();
                     
                     if (empId && dateStr && field) {
                         const docId = empId + "_" + dateStr;
                         if (!overrideMap[docId]) {
                             overrideMap[docId] = { empId: empId, date: dateStr };
                         }
-                        overrideMap[docId][field] = input.value.trim();
+                        overrideMap[docId][field] = val;
+
+                        // Auto-Deduct Logic
+                        if (field === 'total') {
+                            let vMatch = val.match(/Vacation-\d{4}-(\d+)/i);
+                            if (vMatch) {
+                                let num = parseInt(vMatch[1]);
+                                let currentDbVacUsed = parseInt(input.dataset.vacused) || 0;
+                                if (num > currentDbVacUsed) {
+                                    if (!empUpdates[empId]) empUpdates[empId] = {};
+                                    empUpdates[empId].vacationUsed = num;
+                                    input.dataset.vacused = num; // update DOM memory
+                                }
+                            }
+                            
+                            let sMatch = val.match(/Sick-\d{4}-(\d+)/i);
+                            if (sMatch) {
+                                let num = parseInt(sMatch[1]);
+                                let currentDbSickUsed = parseInt(input.dataset.sickused) || 0;
+                                if (num > currentDbSickUsed) {
+                                    if (!empUpdates[empId]) empUpdates[empId] = {};
+                                    empUpdates[empId].sickUsed = num;
+                                    input.dataset.sickused = num;
+                                }
+                            }
+                        }
                     }
                 });
                 
@@ -1027,6 +1105,11 @@
                     batch.set(docRef, overrideMap[docId], { merge: true });
                 });
                 
+                Object.keys(empUpdates).forEach(empId => {
+                    const empRef = db.collection('employees').doc(empId);
+                    batch.set(empRef, empUpdates[empId], { merge: true });
+                });
+
                 const noteInputs = document.querySelectorAll('.note-input');
                 noteInputs.forEach(input => {
                     const empId = input.dataset.empid;
@@ -1038,6 +1121,9 @@
                 
                 await batch.commit();
                 alert("Changes saved successfully! These edits will now persist.");
+                
+                generateReport(); // Refresh everything visually
+                loadEmployees(); // Update the balances on the backend tab silently
             } catch(e) {
                 console.error(e);
                 alert("Error saving changes.");
@@ -1056,6 +1142,7 @@
             
             const [sYear, sMonth, sDay] = startStr.split('-');
             const startD = new Date(sYear, sMonth - 1, sDay);
+            const reportYear = sYear;
             
             const [eYear, eMonth, eDay] = endStr.split('-');
             const endD = new Date(eYear, eMonth - 1, eDay);
@@ -1162,6 +1249,7 @@
                 for (let agency in groups) {
                     for (let dept in groups[agency]) {
                         gIdx++;
+                        
                         let tableTitle = `${dept} - Timesheet${agency === 'Signifi' ? '' : ' - ' + agency}`;
                         let firstColHeader = `${dept} - timesheet at Tech Avn.`;
                         let titleColspan = rangeDates.length + 6;
@@ -1204,6 +1292,21 @@
                             eIdx++;
                             let empStartRow = excelRow;
                             
+                            // Smart Vacation / Sick Datalist Builder
+                            let datalistId = `leave_${emp.id}`;
+                            let datalistHtml = `<datalist id="${datalistId}">`;
+                            let vUsed = emp.vacationUsed || 0;
+                            let vTotal = emp.vacationTotal || 0;
+                            for(let v = vUsed + 1; v <= vTotal; v++) {
+                                datalistHtml += `<option value="Vacation-${reportYear}-${v}"></option>`;
+                            }
+                            let sUsed = emp.sickUsed || 0;
+                            let sTotal = emp.sickTotal || 0;
+                            for(let s = sUsed + 1; s <= sTotal; s++) {
+                                datalistHtml += `<option value="Sick-${reportYear}-${s}"></option>`;
+                            }
+                            datalistHtml += `</datalist>`;
+                            
                             let empTotalMins = 0;
                             let rowIn = "", rowOut = "", rowBreak = "", rowTotal = "";
                             let isAgency = emp.type === "Agency";
@@ -1223,9 +1326,9 @@
                                 let bg = isWeekend ? 'background-color: #bfbfbf;' : 'background-color: #ffffff;';
                                 let bgTotalRow = isWeekend ? 'background-color: #bfbfbf;' : 'background-color: #e6e6e6;';
                                 
-                                let tIn = "", tOut = "", tBreak = "";
+                                let tIn = "", tOut = "", tBreak = "", tTotal = "";
+                                let netMins = 0;
                                 
-                                // Process Base Shifts
                                 if (dayData && dayData.in) {
                                     let roundedIn = new Date(dayData.in);
                                     if ((roundedIn.getHours() === 8 && roundedIn.getMinutes() >= 30) || (roundedIn.getHours() === 9 && roundedIn.getMinutes() <= 14)) {
@@ -1240,6 +1343,7 @@
                                         }
                                         tOut = roundedOut.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
                                         
+                                        let diffMins = Math.floor((roundedOut - roundedIn) / 60000);
                                         let onePM = new Date(roundedOut);
                                         onePM.setHours(13, 0, 0, 0);
                                         tBreak = (isAgency && roundedOut > onePM) ? "0:45" : "";
@@ -1248,34 +1352,32 @@
                                     }
                                 }
 
-                                // Apply Saved Overrides
                                 if (override) {
                                     if (override.in !== undefined) tIn = override.in;
                                     if (override.out !== undefined) tOut = override.out;
                                     if (override.break !== undefined) tBreak = override.break;
                                 }
 
-                                // Calculate initial UI Total
-                                let tTotal = "";
                                 const parseTimeStr = (str) => {
                                     if(!str || !str.includes(':')) return 0;
                                     let p = str.split(':');
                                     return parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
                                 };
                                 
-                                let netMins = 0;
                                 if (tIn && tOut && tOut.toLowerCase() !== "missed") {
                                     let inM = parseTimeStr(tIn);
                                     let outM = parseTimeStr(tOut);
                                     let bM = parseTimeStr(tBreak);
-                                    if (outM >= inM) {
-                                        netMins = Math.max(0, (outM - inM) - bM);
-                                    }
+                                    if (outM >= inM) netMins = Math.max(0, (outM - inM) - bM);
                                 }
                                 
                                 empTotalMins += netMins;
                                 if (netMins > 0 || (tIn && tOut && tOut.toLowerCase() !== "missed")) {
                                     tTotal = `${Math.floor(netMins / 60)}:${(netMins % 60).toString().padStart(2, '0')}`;
+                                }
+                                
+                                if (override && override.total !== undefined) {
+                                    tTotal = override.total;
                                 }
                                 
                                 let inId = `in_${gIdx}_${eIdx}_${i}`;
@@ -1287,12 +1389,14 @@
                                 let inCell = `${colLtr}${empStartRow}`;
                                 let outCell = `${colLtr}${empStartRow + 1}`;
                                 let breakCell = `${colLtr}${empStartRow + 2}`;
-                                let excelFormula = `=IFERROR(${outCell}-${inCell}-${breakCell}, 0)`;
+                                
+                                // Clean Excel math string for blank breaks natively
+                                let excelFormula = `=IFERROR(${outCell}-${inCell}-IF(${breakCell}="",0,${breakCell}), 0)`;
 
                                 rowIn += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${inId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="in" value="${tIn}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
                                 rowOut += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${outId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="out" value="${tOut}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
                                 rowBreak += `<td class="row-break" style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${breakId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="break" value="${tBreak}" class="time-input" style="color: red;" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
-                                rowTotal += `<td id="${totalId}" data-formula="${excelFormula}" style="font-weight:bold; border: 1px solid #000; text-align: center; mso-number-format:'\\[h\\]\\:mm'; ${bgTotalRow}">${tTotal}</td>`;
+                                rowTotal += `<td style="border: 1px solid #000; padding: 0; ${bgTotalRow}"><input type="text" list="${datalistId}" id="${totalId}" data-empid="${emp.id}" data-vacused="${vUsed}" data-sickused="${sUsed}" data-date="${dateStr}" data-field="total" data-formula="${excelFormula}" value="${tTotal}" class="time-input total-input" style="font-weight:bold; border:none; text-align:center; width:100%; background:transparent; color:inherit;" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
                             }
 
                             let fmtEmpTotal = "";
@@ -1311,7 +1415,7 @@
 
                             html += `<tr>`;
                             html += `<td rowspan="4" style="width:10%; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;">${displayAgencyCol}</td>`;
-                            html += `<td rowspan="4" style="width:10%; font-weight:bold; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;">${emp.name}</td>`;
+                            html += `<td rowspan="4" style="width:10%; font-weight:bold; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;">${emp.name}${datalistHtml}</td>`;
                             html += `<td style="border: 1px solid #000; background-color: #ffffff; text-align: center;">In</td>${rowIn}`;
                             
                             html += `<td id="emptotal_${gIdx}_${eIdx}" class="group-emptotal-${gIdx}" data-formula="${empTotalFormula}" rowspan="4" style="font-weight:bold; font-size: 14px; border: 1px solid #000; text-align: center; vertical-align: middle; mso-number-format:'\\[h\\]\\:mm'; background-color: #ffffff;">${fmtEmpTotal}</td>`;
@@ -1331,7 +1435,6 @@
                         let totalRowLeftSpan = 3 + rangeDates.length;
                         let groupTotalFormula = `=SUM(${deptTotalRefs.join(',')})`;
                         
-                        // Calculate UI initial group total
                         let initialGroupMins = 0;
                         groups[agency][dept].forEach((emp, i) => {
                             let eTotalStr = document.getElementById(`emptotal_${gIdx}_${i+1}`) ? document.getElementById(`emptotal_${gIdx}_${i+1}`).innerText : "0:00";
@@ -1345,7 +1448,7 @@
                             fmtGrpTotal = `${Math.floor(initialGroupMins / 60)}:${(initialGroupMins % 60).toString().padStart(2, '0')}`;
                         }
                         
-                        html += `<tr class="totals-row" style="background-color: #a6a6a6;"><td colspan="${totalRowLeftSpan}" style="border: 2px solid #000; font-weight:bold; text-align: center;">Total hours</td><td id="grouptotal_${gIdx}" data-formula="${groupTotalFormula}" class="text-green" style="border: 2px solid #000; font-weight:bold; text-align: center; mso-number-format:'\\[h\\]\\:mm';"></td><td colspan="2" style="border: 2px solid #000;"></td></tr>`;
+                        html += `<tr class="totals-row" style="background-color: #a6a6a6;"><td colspan="${totalRowLeftSpan}" style="border: 2px solid #000; font-weight:bold; text-align: center;">Total hours</td><td id="grouptotal_${gIdx}" data-formula="${groupTotalFormula}" class="text-green" style="border: 2px solid #000; font-weight:bold; text-align: center; mso-number-format:'\\[h\\]\\:mm';"></td><td colspan="2" style="border: 2px solid #000;"></td></tr></table><br><br>`;
                         excelRow += 1;
                         
                         html += `<tr><td colspan="${titleColspan}" style="border: none; height: 30px;"></td></tr>`;
@@ -1356,7 +1459,6 @@
                 
                 container.innerHTML = html || "<p>No shifts recorded.</p>";
                 
-                // Trigger an initial math calculation for the UI
                 document.querySelectorAll('.time-input[data-field="in"]').forEach(input => {
                     input.dispatchEvent(new Event('change'));
                 });
@@ -1377,19 +1479,34 @@
             const cloneInputs = clone.querySelectorAll('.note-input, .time-input');
             
             for (let i = 0; i < originalInputs.length; i++) {
-                const val = originalInputs[i].value;
+                const val = originalInputs[i].value.trim();
                 const td = cloneInputs[i].parentNode;
                 
-                if (originalInputs[i].classList.contains('time-input') && val !== "" && val.toLowerCase() !== "missed") {
+                if (originalInputs[i].dataset.field === 'total') {
+                    if (val.toLowerCase().includes('vacation') || val.toLowerCase().includes('sick')) {
+                        originalInputs[i].removeAttribute('data-formula');
+                        cloneInputs[i].removeAttribute('data-formula');
+                        if (td.getAttribute("style")) {
+                            td.setAttribute("style", td.getAttribute("style").replace(/mso-number-format:'\\[h\\]\\:mm';/g, ""));
+                        }
+                    }
+                }
+                
+                if (originalInputs[i].classList.contains('time-input') && val !== "" && val.toLowerCase() !== "missed" && !val.toLowerCase().includes('vacation') && !val.toLowerCase().includes('sick')) {
                     td.setAttribute("style", td.getAttribute("style") + "mso-number-format:'\\[h\\]\\:mm';");
                 }
                 
                 td.innerHTML = `<span style="${originalInputs[i].style.color ? 'color:red;' : ''}">${val === '0:00' ? '' : val}</span>`;
             }
 
+            // Strictly inject formulas for native Excel processing
             const formulaCells = clone.querySelectorAll('[data-formula]');
             formulaCells.forEach(cell => {
-                cell.innerText = cell.getAttribute('data-formula');
+                const formTxt = cell.getAttribute('data-formula');
+                if (formTxt) {
+                    cell.setAttribute('x:fmla', formTxt); // Best practice for old XLS formats
+                    cell.innerText = formTxt; // Works natively in modern Excel
+                }
             });
 
             const template = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>table { border-collapse: collapse; font-family: Calibri, sans-serif; font-size: 11pt; text-align: center; vertical-align: middle; } th, td { border: 1px solid #000000; padding: 4px; text-align: center; vertical-align: middle; } .weekend-col { background-color: #a6a6a6; } .text-green { color: #00b050; font-weight: bold; } .row-break { color: red; } .totals-row { background-color: #a6a6a6; font-weight: bold; }</style></head><body>${clone.innerHTML}</body></html>`;
