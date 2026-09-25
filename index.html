@@ -291,7 +291,10 @@
                     <input type="date" id="report-end" style="padding: 10px; font-size: 1rem; border-radius: 4px; border: 1px solid #ccc;">
                     <button class="action-btn" onclick="generateReport()" style="background-color: #007bff; margin-left: 10px;">Generate</button>
                 </div>
-                <button class="action-btn" onclick="exportReportToExcel()">Export to Excel</button>
+                <div>
+                    <button class="action-btn" id="save-changes-btn" onclick="saveReportChanges()" style="background-color: #28a745; margin-right: 10px;">Save Changes</button>
+                    <button class="action-btn" onclick="exportReportToExcel()">Export to Excel</button>
+                </div>
             </div>
             
             <div id="report-container" style="overflow-x: auto; background: white; padding: 10px; border: 1px solid #ddd; margin-top: 15px;">
@@ -328,11 +331,21 @@
     </div>
 
     <script>
-        // === LIVE TIMESHEET RECALCULATION ENGINE ===
+        // Helper function for Excel Column Letters (A, B, C... Z, AA, AB)
+        function getColLtr(n) {
+            let s = "";
+            while(n >= 0) {
+                s = String.fromCharCode(n % 26 + 65) + s;
+                n = Math.floor(n / 26) - 1;
+            }
+            return s;
+        }
+
+        // === LIVE TIMESHEET RECALCULATION ENGINE (UI) ===
         window.recalcTime = function(gIdx, eIdx, colIdx, numCols) {
-            const inVal = document.getElementById(`in-${gIdx}-${eIdx}-${colIdx}`).value.trim();
-            const outVal = document.getElementById(`out-${gIdx}-${eIdx}-${colIdx}`).value.trim();
-            const breakVal = document.getElementById(`break-${gIdx}-${eIdx}-${colIdx}`).value.trim();
+            const inVal = document.getElementById(`in_${gIdx}_${eIdx}_${colIdx}`).value.trim();
+            const outVal = document.getElementById(`out_${gIdx}_${eIdx}_${colIdx}`).value.trim();
+            const breakVal = document.getElementById(`break_${gIdx}_${eIdx}_${colIdx}`).value.trim();
 
             const parseTime = (str) => {
                 if(!str || !str.includes(':')) return 0;
@@ -352,27 +365,28 @@
             }
 
             const formatTime = (mins) => {
+                if(mins === 0 && (!inVal || !outVal)) return "";
                 let h = Math.floor(mins / 60);
                 let m = mins % 60;
                 return h + ":" + m.toString().padStart(2, '0');
             };
 
-            // Update daily total
-            document.getElementById(`total-${gIdx}-${eIdx}-${colIdx}`).innerText = formatTime(netMins);
+            // Update daily total in UI
+            document.getElementById(`total_${gIdx}_${eIdx}_${colIdx}`).innerText = formatTime(netMins);
 
-            // Update Employee Total
+            // Update Employee Total in UI
             let empTotal = 0;
             for(let i=0; i<numCols; i++) {
-                empTotal += parseTime(document.getElementById(`total-${gIdx}-${eIdx}-${i}`).innerText);
+                empTotal += parseTime(document.getElementById(`total_${gIdx}_${eIdx}_${i}`).innerText);
             }
-            document.getElementById(`emptotal-${gIdx}-${eIdx}`).innerText = formatTime(empTotal);
+            document.getElementById(`emptotal_${gIdx}_${eIdx}`).innerText = formatTime(empTotal);
 
-            // Update Group (Department/Agency) Total
+            // Update Group (Department/Agency) Total in UI
             let groupTotal = 0;
             document.querySelectorAll(`.group-emptotal-${gIdx}`).forEach(el => {
                 groupTotal += parseTime(el.innerText);
             });
-            document.getElementById(`grouptotal-${gIdx}`).innerText = formatTime(groupTotal);
+            document.getElementById(`grouptotal_${gIdx}`).innerText = formatTime(groupTotal);
         };
 
         // === 1. FIREBASE SETUP ===
@@ -425,12 +439,12 @@
         });
 
         async function initiatePunch() {
-            if (isProcessingPunch) return; // Ignore duplicate Enter keypresses
+            if (isProcessingPunch) return; 
 
             const badgeId = manualInput.value.trim();
             if(!badgeId) return;
 
-            isProcessingPunch = true; // Lock the scanner
+            isProcessingPunch = true; 
             manualInput.value = ''; 
 
             const statusDiv = document.getElementById('status-display');
@@ -447,7 +461,7 @@
                     statusDiv.innerText = 'Badge not found. Please contact Admin.';
                     setTimeout(() => {
                         statusDiv.style.display = 'none';
-                        isProcessingPunch = false; // Unlock
+                        isProcessingPunch = false; 
                     }, 3000);
                     return;
                 }
@@ -491,7 +505,7 @@
                 statusDiv.innerText = 'Database Error: ' + err.message;
                 setTimeout(() => {
                     statusDiv.style.display = 'none';
-                    isProcessingPunch = false; // Unlock
+                    isProcessingPunch = false; 
                 }, 5000);
             }
         }
@@ -516,7 +530,7 @@
                 
                 setTimeout(() => {
                     statusDiv.style.display = 'none';
-                    isProcessingPunch = false; // Unlock
+                    isProcessingPunch = false; 
                     manualInput.focus();
                 }, 3500);
 
@@ -525,7 +539,7 @@
                 statusDiv.style.display = 'block';
                 statusDiv.className = 'status-message error';
                 statusDiv.innerText = "Error saving punch. " + err.message;
-                isProcessingPunch = false; // Unlock
+                isProcessingPunch = false; 
             }
         }
 
@@ -542,7 +556,7 @@
         function closeModal(id) {
             document.getElementById(id).style.display = 'none';
             if(id === 'confirm-modal') {
-                isProcessingPunch = false; // Unlock if cancelled
+                isProcessingPunch = false; 
                 manualInput.focus();
             }
             if(id === 'login-modal') manualInput.focus();
@@ -985,6 +999,55 @@
             generateReport();
         }
 
+        async function saveReportChanges() {
+            const btn = document.getElementById('save-changes-btn');
+            btn.innerText = "Saving...";
+            
+            try {
+                const batch = db.batch();
+                const timeInputs = document.querySelectorAll('.time-input');
+                const overrideMap = {};
+                
+                // Read modified times
+                timeInputs.forEach(input => {
+                    const parts = input.id.split('_'); 
+                    if (parts.length === 4) {
+                        const field = parts[0]; 
+                        const empId = parts[1];
+                        const dateStr = parts[2];
+                        const docId = empId + "_" + dateStr;
+                        
+                        if (!overrideMap[docId]) {
+                            overrideMap[docId] = { empId: empId, date: dateStr };
+                        }
+                        overrideMap[docId][field] = input.value.trim();
+                    }
+                });
+                
+                Object.keys(overrideMap).forEach(docId => {
+                    const docRef = db.collection('timesheet_overrides').doc(docId);
+                    batch.set(docRef, overrideMap[docId], { merge: true });
+                });
+                
+                // Read modified notes
+                const noteInputs = document.querySelectorAll('.note-input');
+                noteInputs.forEach(input => {
+                    const empId = input.dataset.empid;
+                    if(empId) {
+                        const docRef = db.collection('timesheet_notes').doc(empId);
+                        batch.set(docRef, { note: input.value }, { merge: true });
+                    }
+                });
+                
+                await batch.commit();
+                alert("Changes saved successfully! These edits will now persist.");
+            } catch(e) {
+                console.error(e);
+                alert("Error saving changes.");
+            }
+            btn.innerText = "Save Changes";
+        }
+
         async function generateReport() {
             const startStr = document.getElementById('report-start').value;
             const endStr = document.getElementById('report-end').value;
@@ -1025,6 +1088,7 @@
             container.innerHTML = "<p>Loading timesheets...</p>";
 
             try {
+                // 1. Fetch raw data
                 const empsSnapshot = await db.collection("employees").get();
                 const employees = {};
                 const reportAgencies = new Set();
@@ -1037,6 +1101,18 @@
                     }
                 });
 
+                // Fetch manual overrides and notes
+                const overridesSnap = await db.collection("timesheet_overrides")
+                    .where("date", ">=", startStr)
+                    .where("date", "<=", endStr).get();
+                const overridesData = {};
+                overridesSnap.forEach(doc => overridesData[doc.id] = doc.data());
+
+                const notesSnap = await db.collection("timesheet_notes").get();
+                const notesData = {};
+                notesSnap.forEach(doc => notesData[doc.id] = doc.data().note);
+
+                // Build Tabs
                 let tabsHtml = `<button class="filter-btn ${currentReportFilter === 'All' ? 'active' : ''}" onclick="setReportFilter('All')">All Reports</button>
                                 <button class="filter-btn ${currentReportFilter === 'Signifi' ? 'active' : ''}" onclick="setReportFilter('Signifi')">Signifi</button>`;
                 reportAgencies.forEach(agency => {
@@ -1070,6 +1146,7 @@
                     }
                 });
 
+                // Group by Agency, then Dept
                 const groups = {}; 
                 for (let empId in employees) {
                     let emp = employees[empId];
@@ -1084,36 +1161,33 @@
                     groups[agencyDisplay][deptName].push(emp);
                 }
 
-                let html = "";
                 const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-                let gIdx = 0;
+                let html = `<table id="export-table" class="report-table" style="border: 2px solid #000; border-collapse: collapse; font-family: Calibri, sans-serif; font-size: 11pt;">`;
+                let excelRow = 1; 
 
                 for (let agency in groups) {
                     for (let dept in groups[agency]) {
-                        gIdx++;
-                        
                         let tableTitle = `${dept} - Timesheet${agency === 'Signifi' ? '' : ' - ' + agency}`;
                         let firstColHeader = `${dept} - timesheet at Tech Avn.`;
-                        
                         let titleColspan = rangeDates.length + 6;
 
-                        html += `<table class="report-table" style="border: 2px solid #000; border-collapse: collapse;">`;
-                        
-                        html += `<tr><td colspan="${titleColspan}" class="report-header-title" style="background-color: #bfbfbf; border: 2px solid #000; font-size: 18px; padding: 10px; font-weight: bold;">${tableTitle}</td></tr>`;
+                        html += `<tr><td colspan="${titleColspan}" class="report-header-title" style="background-color: #bfbfbf; border: 2px solid #000; font-size: 18px; padding: 10px; font-weight: bold; text-align: center;">${tableTitle}</td></tr>`;
+                        excelRow++;
                         
                         html += `<tr style="background-color: #d9d9d9;">`;
-                        html += `<td rowspan="2" colspan="3" style="width:20%; border: 1px solid #000; font-weight: bold;">${firstColHeader}</td>`;
+                        html += `<td rowspan="2" colspan="3" style="width:20%; border: 1px solid #000; font-weight: bold; text-align: center; vertical-align: middle;">${firstColHeader}</td>`;
                         
                         for (let i = 0; i < rangeDates.length; i++) { 
                             let d = rangeDates[i];
                             let isWeekend = d.getDay() === 0 || d.getDay() === 6;
                             let bg = isWeekend ? 'background-color: #bfbfbf;' : ''; 
-                            html += `<td style="width:7%; border: 1px solid #000; font-weight: bold; ${bg}">${dayNames[d.getDay()]}</td>`; 
+                            html += `<td style="width:7%; border: 1px solid #000; font-weight: bold; text-align: center; ${bg}">${dayNames[d.getDay()]}</td>`; 
                         }
                         
-                        html += `<td rowspan="2" style="width:9%; border: 1px solid #000; font-weight: bold; background-color: #d9d9d9;">Total working hours</td>`;
-                        html += `<td rowspan="2" style="width:10%; border: 1px solid #000; font-weight: bold;">Working area</td>`;
-                        html += `<td rowspan="2" style="width:12%; border: 1px solid #000; font-weight: bold;">Note for Extra hours</td></tr>`;
+                        html += `<td rowspan="2" style="width:9%; border: 1px solid #000; font-weight: bold; background-color: #d9d9d9; text-align: center; vertical-align: middle;">Total working hours</td>`;
+                        html += `<td rowspan="2" style="width:10%; border: 1px solid #000; font-weight: bold; text-align: center; vertical-align: middle;">Working area</td>`;
+                        html += `<td rowspan="2" style="width:12%; border: 1px solid #000; font-weight: bold; text-align: center; vertical-align: middle;">Note for Extra hours</td></tr>`;
+                        excelRow++;
                         
                         html += `<tr style="background-color: #d9d9d9;">`;
                         for (let i = 0; i < rangeDates.length; i++) {
@@ -1121,112 +1195,130 @@
                             let isWeekend = d.getDay() === 0 || d.getDay() === 6;
                             let bg = isWeekend ? 'background-color: #bfbfbf;' : '';
                             let dStr = d.toLocaleDateString('en-GB', {day: 'numeric', month: 'short', year: 'numeric'}).replace(/ /g, '-');
-                            html += `<td style="border: 1px solid #000; ${bg}">${dStr}</td>`;
+                            html += `<td style="border: 1px solid #000; text-align: center; ${bg}">${dStr}</td>`;
                         }
                         html += `</tr>`;
+                        excelRow++;
 
-                        let deptTotalMins = 0;
+                        let deptTotalRefs = [];
                         let eIdx = 0;
 
                         groups[agency][dept].forEach(emp => {
                             eIdx++;
-                            let empTotalMins = 0;
+                            let empStartRow = excelRow;
+                            
                             let rowIn = "", rowOut = "", rowBreak = "", rowTotal = "";
                             let isAgency = emp.type === "Agency";
                             let displayAgencyCol = isAgency ? (emp.agencyName || "Agency") : "Signifi";
                             
                             for (let i = 0; i < rangeDates.length; i++) {
                                 let d = rangeDates[i];
-                                
                                 const year = d.getFullYear();
                                 const month = String(d.getMonth() + 1).padStart(2, '0');
                                 const day = String(d.getDate()).padStart(2, '0');
                                 const dateStr = `${year}-${month}-${day}`;
                                 
                                 let dayData = (shiftData[emp.id] && shiftData[emp.id][dateStr]) ? shiftData[emp.id][dateStr] : null;
+                                let override = overridesData[emp.id + "_" + dateStr];
                                 
                                 let isWeekend = d.getDay() === 0 || d.getDay() === 6;
                                 let bg = isWeekend ? 'background-color: #bfbfbf;' : 'background-color: #ffffff;';
                                 let bgTotalRow = isWeekend ? 'background-color: #bfbfbf;' : 'background-color: #e6e6e6;';
                                 
-                                let tIn = "", tOut = "", tBreak = "", tTotal = "0:00";
+                                let tIn = "", tOut = "", tBreak = "";
                                 
-                                if (dayData && dayData.in) {
+                                if (override) {
+                                    tIn = override.in || "";
+                                    tOut = override.out || "";
+                                    tBreak = override.break || "";
+                                } else if (dayData && dayData.in) {
                                     let roundedIn = new Date(dayData.in);
-                                    let inH = roundedIn.getHours();
-                                    let inM = roundedIn.getMinutes();
-                                    if ((inH === 8 && inM >= 30) || (inH === 9 && inM <= 14)) {
+                                    if ((roundedIn.getHours() === 8 && roundedIn.getMinutes() >= 30) || (roundedIn.getHours() === 9 && roundedIn.getMinutes() <= 14)) {
                                         roundedIn.setHours(9, 0, 0, 0);
                                     }
-
                                     tIn = roundedIn.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
                                     
                                     if (dayData.out) {
                                         let roundedOut = new Date(dayData.out);
-                                        let outH = roundedOut.getHours();
-                                        let outM = roundedOut.getMinutes();
-                                        if ((outH === 16 && outM >= 50) || (outH === 17 && outM <= 14)) {
+                                        if ((roundedOut.getHours() === 16 && roundedOut.getMinutes() >= 50) || (roundedOut.getHours() === 17 && roundedOut.getMinutes() <= 14)) {
                                             roundedOut.setHours(17, 0, 0, 0);
                                         }
-
                                         tOut = roundedOut.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
-                                        
-                                        let diffMins = Math.floor((roundedOut - roundedIn) / 60000);
                                         
                                         let onePM = new Date(roundedOut);
                                         onePM.setHours(13, 0, 0, 0);
-                                        let breakMins = (isAgency && roundedOut > onePM) ? 45 : 0;
-                                        
-                                        let netMins = Math.max(0, diffMins - breakMins);
-                                        empTotalMins += netMins;
-                                        deptTotalMins += netMins;
-                                        
-                                        tBreak = breakMins === 45 ? "0:45" : "0:00";
-                                        tTotal = `${Math.floor(netMins / 60)}:${(netMins % 60).toString().padStart(2, '0')}`;
-                                    } else { 
-                                        tOut = "Missed"; 
+                                        tBreak = (isAgency && roundedOut > onePM) ? "0:45" : "";
                                     }
                                 }
                                 
-                                let inId = `in-${gIdx}-${eIdx}-${i}`;
-                                let outId = `out-${gIdx}-${eIdx}-${i}`;
-                                let breakId = `break-${gIdx}-${eIdx}-${i}`;
-                                let totalId = `total-${gIdx}-${eIdx}-${i}`;
+                                let inId = `in_${agency.replace(/\s/g,'')}_${eIdx}_${i}`;
+                                let outId = `out_${agency.replace(/\s/g,'')}_${eIdx}_${i}`;
+                                let breakId = `break_${agency.replace(/\s/g,'')}_${eIdx}_${i}`;
+                                let totalId = `total_${agency.replace(/\s/g,'')}_${eIdx}_${i}`;
 
-                                rowIn += `<td style="border: 1px solid #000; padding: 0; ${bg}"><input type="text" id="${inId}" value="${tIn}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
-                                rowOut += `<td style="border: 1px solid #000; padding: 0; ${bg}"><input type="text" id="${outId}" value="${tOut}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
-                                rowBreak += `<td class="row-break" style="border: 1px solid #000; padding: 0; ${bg}"><input type="text" id="${breakId}" value="${tBreak.replace(/<[^>]+>/g, '')}" class="time-input" style="color: red;" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
-                                rowTotal += `<td id="${totalId}" style="font-weight:bold; border: 1px solid #000; ${bgTotalRow}">${tTotal}</td>`;
+                                let colLtr = getColLtr(3 + i);
+                                let inCell = `${colLtr}${empStartRow}`;
+                                let outCell = `${colLtr}${empStartRow + 1}`;
+                                let breakCell = `${colLtr}${empStartRow + 2}`;
+                                
+                                // Excel exact formula logic
+                                let excelFormula = `=IFERROR(${outCell}-${inCell}-${breakCell}, 0)`;
+
+                                rowIn += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${inId}" data-field="in" value="${tIn}" class="time-input" onchange="recalcTime('${agency.replace(/\s/g,'')}', ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
+                                rowOut += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${outId}" data-field="out" value="${tOut}" class="time-input" onchange="recalcTime('${agency.replace(/\s/g,'')}', ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
+                                rowBreak += `<td class="row-break" style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${breakId}" data-field="break" value="${tBreak}" class="time-input" style="color: red;" onchange="recalcTime('${agency.replace(/\s/g,'')}', ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
+                                rowTotal += `<td id="${totalId}" data-formula="${excelFormula}" style="font-weight:bold; border: 1px solid #000; text-align: center; mso-number-format:'\\[h\\]\\:mm'; ${bgTotalRow}"></td>`;
                             }
 
-                            let fmtEmpTotal = `${Math.floor(empTotalMins / 60)}:${(empTotalMins % 60).toString().padStart(2, '0')}`;
+                            let defaultNote = notesData[emp.id] ? notesData[emp.id] : `Regular ${dept} Projects`;
+
+                            // Calculate Excel formulas for Totals
+                            let firstTotCell = `${getColLtr(3)}${empStartRow + 3}`;
+                            let lastTotCell = `${getColLtr(3 + rangeDates.length - 1)}${empStartRow + 3}`;
+                            let empTotalFormula = `=SUM(${firstTotCell}:${lastTotCell})`;
+                            
+                            let totColLtr = getColLtr(3 + rangeDates.length);
+                            deptTotalRefs.push(`${totColLtr}${empStartRow}`);
 
                             html += `<tr>`;
-                            html += `<td rowspan="4" style="width:10%; border: 1px solid #000; background-color: #ffffff;">${displayAgencyCol}</td>`;
-                            html += `<td rowspan="4" style="width:10%; font-weight:bold; border: 1px solid #000; background-color: #ffffff;">${emp.name}</td>`;
-                            html += `<td style="border: 1px solid #000; background-color: #ffffff;">In</td>${rowIn}`;
+                            html += `<td rowspan="4" style="width:10%; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;">${displayAgencyCol}</td>`;
+                            html += `<td rowspan="4" style="width:10%; font-weight:bold; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;">${emp.name}</td>`;
+                            html += `<td style="border: 1px solid #000; background-color: #ffffff; text-align: center;">In</td>${rowIn}`;
                             
-                            html += `<td id="emptotal-${gIdx}-${eIdx}" class="group-emptotal-${gIdx}" rowspan="4" style="font-weight:bold; font-size: 14px; border: 1px solid #000; vertical-align: middle; background-color: #ffffff;">${fmtEmpTotal}</td>`;
-                            html += `<td rowspan="4" class="text-green" style="border: 1px solid #000; vertical-align: middle; background-color: #ffffff;">${dept}</td>`;
+                            html += `<td id="emptotal-${agency.replace(/\s/g,'')}-${eIdx}" class="group-emptotal-${agency.replace(/\s/g,'')}" data-formula="${empTotalFormula}" rowspan="4" style="font-weight:bold; font-size: 14px; border: 1px solid #000; text-align: center; vertical-align: middle; mso-number-format:'\\[h\\]\\:mm'; background-color: #ffffff;"></td>`;
+                            html += `<td rowspan="4" class="text-green" style="border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;">${dept}</td>`;
                             
                             html += `<td rowspan="4" style="border: 1px solid #000; vertical-align: middle; background-color: #ffffff; padding: 0;">
-                                <input type="text" value="Regular ${dept} Projects" class="note-input" style="width: 100%; height: 100%; min-height: 50px; border: none; text-align: center; background: transparent; font-family: inherit; font-size: inherit;">
+                                <input type="text" data-empid="${emp.id}" data-field="note" value="${defaultNote}" class="note-input" style="width: 100%; height: 100%; min-height: 50px; border: none; text-align: center; background: transparent; font-family: inherit; font-size: inherit;">
                             </td></tr>`;
                             
-                            html += `<tr><td style="border: 1px solid #000; background-color: #ffffff;">Out</td>${rowOut}</tr>`;
-                            html += `<tr><td style="border: 1px solid #000; background-color: #ffffff;">Break</td>${rowBreak}</tr>`;
-                            html += `<tr style="background-color: #e6e6e6;"><td style="border: 1px solid #000; font-weight:bold;">Total</td>${rowTotal}</tr>`;
+                            html += `<tr><td style="border: 1px solid #000; background-color: #ffffff; text-align: center;">Out</td>${rowOut}</tr>`;
+                            html += `<tr><td style="border: 1px solid #000; background-color: #ffffff; text-align: center;">Break</td>${rowBreak}</tr>`;
+                            html += `<tr style="background-color: #e6e6e6;"><td style="border: 1px solid #000; font-weight:bold; text-align: center;">Total</td>${rowTotal}</tr>`;
+                            
+                            excelRow += 4;
                         });
                         
-                        let fmtDeptTotal = `${Math.floor(deptTotalMins / 60)}:${(deptTotalMins % 60).toString().padStart(2, '0')}`;
-                        
                         let totalRowLeftSpan = 3 + rangeDates.length;
+                        let groupTotalFormula = `=SUM(${deptTotalRefs.join(',')})`;
                         
-                        html += `<tr class="totals-row" style="background-color: #a6a6a6;"><td colspan="${totalRowLeftSpan}" style="border: 2px solid #000; font-weight:bold;">Total hours</td><td id="grouptotal-${gIdx}" class="text-green" style="border: 2px solid #000; font-weight:bold;">${fmtDeptTotal}</td><td colspan="2" style="border: 2px solid #000;"></td></tr></table><br><br>`;
+                        html += `<tr class="totals-row" style="background-color: #a6a6a6;"><td colspan="${totalRowLeftSpan}" style="border: 2px solid #000; font-weight:bold; text-align: center;">Total hours</td><td id="grouptotal-${agency.replace(/\s/g,'')}" data-formula="${groupTotalFormula}" class="text-green" style="border: 2px solid #000; font-weight:bold; text-align: center; mso-number-format:'\\[h\\]\\:mm';"></td><td colspan="2" style="border: 2px solid #000;"></td></tr>`;
+                        excelRow += 1;
+                        
+                        // Spacer row
+                        html += `<tr><td colspan="${titleColspan}" style="border: none; height: 30px;"></td></tr>`;
+                        excelRow += 1;
                     }
                 }
+                html += `</table>`;
                 
-                container.innerHTML = html || "<p>No shifts recorded for the selected date range in the selected category.</p>";
+                container.innerHTML = html || "<p>No shifts recorded.</p>";
+                
+                // Trigger an initial math calculation for the UI
+                document.querySelectorAll('.time-input[data-field="in"]').forEach(input => {
+                    input.dispatchEvent(new Event('change'));
+                });
+
             } catch(e) {
                 container.innerHTML = "<p>Error loading data. Is the database connected?</p>";
                 console.error(e);
@@ -1244,13 +1336,21 @@
             
             for (let i = 0; i < originalInputs.length; i++) {
                 const val = originalInputs[i].value;
-                const span = document.createElement('span');
-                span.innerText = val;
-                if (originalInputs[i].style.color === 'red') {
-                    span.style.color = 'red';
+                const td = cloneInputs[i].parentNode;
+                
+                // Determine if we need mso time formatting for Excel calculation
+                if (originalInputs[i].classList.contains('time-input') && val !== "" && val.toLowerCase() !== "missed") {
+                    td.setAttribute("style", td.getAttribute("style") + "mso-number-format:'\\[h\\]\\:mm';");
                 }
-                cloneInputs[i].parentNode.replaceChild(span, cloneInputs[i]);
+                
+                td.innerHTML = `<span style="${originalInputs[i].style.color ? 'color:red;' : ''}">${val === '0:00' ? '' : val}</span>`;
             }
+
+            // Inject Excel formulas into exactly the correct calculation cells
+            const formulaCells = clone.querySelectorAll('[data-formula]');
+            formulaCells.forEach(cell => {
+                cell.innerText = cell.getAttribute('data-formula');
+            });
 
             const template = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>table { border-collapse: collapse; font-family: Calibri, sans-serif; font-size: 11pt; text-align: center; vertical-align: middle; } th, td { border: 1px solid #000000; padding: 4px; text-align: center; vertical-align: middle; } .weekend-col { background-color: #a6a6a6; } .text-green { color: #00b050; font-weight: bold; } .row-break { color: red; } .totals-row { background-color: #a6a6a6; font-weight: bold; }</style></head><body>${clone.innerHTML}</body></html>`;
             
