@@ -319,8 +319,23 @@
 
         <!-- Reports Tab -->
         <div id="reports" class="tab-content">
-            <div class="filter-tabs" id="dynamic-report-filter-tabs">
-                <button class="filter-btn active" onclick="setReportFilter('All')">All Reports</button>
+            
+            <!-- Multi-Select Filters for Report Generation -->
+            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 15px;">
+                <!-- Agencies Filter Row -->
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom: 10px; flex-wrap:wrap;">
+                    <strong style="font-size:1.1rem; color:#333; min-width: 110px;">Agencies:</strong>
+                    <div class="filter-tabs" id="dynamic-report-filter-tabs" style="margin-bottom:0;">
+                        <button class="filter-btn active" onclick="setReportFilter('All')">All Reports</button>
+                    </div>
+                </div>
+                <!-- Departments Filter Row -->
+                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                    <strong style="font-size:1.1rem; color:#333; min-width: 110px;">Departments:</strong>
+                    <div class="filter-tabs" id="dynamic-dept-filter-tabs" style="margin-bottom:0;">
+                        <button class="filter-btn active" onclick="toggleDeptFilter('All')">All</button>
+                    </div>
+                </div>
             </div>
 
             <div class="report-controls" style="background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #ddd; flex-direction: column; align-items: stretch; gap: 15px;">
@@ -389,6 +404,11 @@
             }
             return s;
         }
+
+        // Global filter arrays
+        let currentReportFilter = 'All'; 
+        let currentDeptFilters = ['All']; 
+        let availableDepartments = [];
 
         // === LIVE TIMESHEET RECALCULATION ENGINE (UI) ===
         window.recalcTime = function(gIdx, eIdx, colIdx, numCols, empType, payType) {
@@ -554,7 +574,7 @@
                     if (hasSalaried && !hasHourly) {
                         document.getElementById(`grouptotal_fulldays_${gIdx}`).innerText = `${grpFullDays} Days`;
                     } else {
-                        document.getElementById(`grouptotal_fulldays_${gIdx}`).innerText = "-"; // Cannot mix Days and Hours
+                        document.getElementById(`grouptotal_fulldays_${gIdx}`).innerText = "-"; 
                     }
                 }
                 if(document.getElementById(`grouptotal_extrahrs_${gIdx}`)) {
@@ -926,8 +946,6 @@
         }
 
         // === 4. EMPLOYEE MANAGEMENT DIRECTORY ===
-        let currentEmpFilter = 'All';
-
         function setEmployeeFilter(filterType) {
             currentEmpFilter = filterType;
             loadEmployees();
@@ -1208,13 +1226,38 @@
         }
 
         // === 6. CUSTOM RANGE TIMESHEET REPORT ===
-        let currentReportFilter = 'All';
-
         function setReportFilter(filterType) {
             currentReportFilter = filterType;
-            document.querySelectorAll('#dynamic-report-filter-tabs .filter-btn').forEach(btn => btn.classList.remove('active'));
-            event.target.classList.add('active');
             generateReport();
+        }
+
+        function toggleDeptFilter(dept) {
+            if (dept === 'All') {
+                currentDeptFilters = ['All'];
+            } else {
+                currentDeptFilters = currentDeptFilters.filter(d => d !== 'All');
+                if (currentDeptFilters.includes(dept)) {
+                    currentDeptFilters = currentDeptFilters.filter(d => d !== dept);
+                    if (currentDeptFilters.length === 0) currentDeptFilters = ['All'];
+                } else {
+                    currentDeptFilters.push(dept);
+                }
+            }
+            generateReport();
+        }
+
+        function renderDeptFilters() {
+            const container = document.getElementById('dynamic-dept-filter-tabs');
+            if (!container) return;
+            
+            let html = `<button class="filter-btn ${currentDeptFilters.includes('All') ? 'active' : ''}" onclick="toggleDeptFilter('All')">All</button>`;
+            
+            availableDepartments.forEach(dept => {
+                const safeDept = dept.replace(/'/g, "\\'");
+                html += `<button class="filter-btn ${currentDeptFilters.includes(dept) ? 'active' : ''}" onclick="toggleDeptFilter('${safeDept}')">${dept}</button>`;
+            });
+            
+            container.innerHTML = html;
         }
 
         window.applyStatHoliday = function() {
@@ -1381,6 +1424,7 @@
                 const empsSnapshot = await db.collection("employees").get();
                 const employees = {};
                 const reportAgencies = new Set();
+                const reportDepts = new Set();
                 
                 empsSnapshot.forEach(doc => { 
                     const emp = doc.data();
@@ -1388,7 +1432,11 @@
                     if (emp.type === 'Agency') {
                         reportAgencies.add(emp.agencyName ? emp.agencyName.trim() : 'Unnamed Agency');
                     }
+                    reportDepts.add(emp.department ? emp.department.trim() : 'General');
                 });
+                
+                availableDepartments = Array.from(reportDepts).sort();
+                renderDeptFilters();
 
                 const overridesSnap = await db.collection("timesheet_overrides")
                     .where("date", ">=", startStr)
@@ -1437,11 +1485,11 @@
                 for (let empId in employees) {
                     let emp = employees[empId];
                     let agencyDisplay = (emp.type === 'Signifi') ? 'Signifi' : (emp.agencyName ? emp.agencyName.trim() : 'Unnamed Agency');
+                    let deptName = emp.department ? emp.department.trim() : 'General';
                     
                     if (currentReportFilter !== 'All' && agencyDisplay !== currentReportFilter) continue;
+                    if (!currentDeptFilters.includes('All') && !currentDeptFilters.includes(deptName)) continue;
 
-                    let deptName = emp.department || 'General';
-                    
                     if (!groups[agencyDisplay]) groups[agencyDisplay] = {};
                     if (!groups[agencyDisplay][deptName]) groups[agencyDisplay][deptName] = [];
                     groups[agencyDisplay][deptName].push(emp);
@@ -1701,8 +1749,8 @@
                         
                         if (isSignifi) {
                             html += `<td colspan="${totalRowLeftSpan}" style="border: 2px solid #000; font-weight:bold; text-align: center;">Department Totals</td>`;
-                            html += `<td id="grouptotal_fulldays_${gIdx}" style="border: 2px solid #000; font-weight:bold; font-size: 16px; text-align: center;"></td>`;
-                            html += `<td id="grouptotal_extrahrs_${gIdx}" class="text-green" style="border: 2px solid #000; font-weight:bold; font-size: 16px; color: #28a745; text-align: center; mso-number-format:'\\[h\\]\\:mm';"></td>`;
+                            html += `<td id="grouptotal_fulldays_${gIdx}" style="border: 2px solid #000; font-weight:bold; font-size: 16px; text-align: center;">0</td>`;
+                            html += `<td id="grouptotal_extrahrs_${gIdx}" class="text-green" style="border: 2px solid #000; font-weight:bold; font-size: 16px; color: #28a745; text-align: center; mso-number-format:'\\[h\\]\\:mm';">0:00</td>`;
                             html += `<td colspan="2" style="border: 2px solid #000;"></td>`;
                         } else {
                             let groupTotalFormula = `=SUM(${deptTotalRefs.join(',')})`;
@@ -1762,13 +1810,12 @@
                 td.innerHTML = `<span style="${originalInputs[i].style.color ? `color:${originalInputs[i].style.color};` : ''}">${val === '0:00' ? '' : val}</span>`;
             }
 
-            // Strictly inject formulas for native Excel processing
             const formulaCells = clone.querySelectorAll('[data-formula]');
             formulaCells.forEach(cell => {
                 const formTxt = cell.getAttribute('data-formula');
                 if (formTxt) {
-                    cell.setAttribute('x:fmla', formTxt); // Best practice for old XLS formats
-                    cell.innerText = formTxt; // Works natively in modern Excel
+                    cell.setAttribute('x:fmla', formTxt); 
+                    cell.innerText = formTxt; 
                 }
             });
 
