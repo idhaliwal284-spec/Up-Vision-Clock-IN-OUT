@@ -80,15 +80,6 @@
         /* Interactive Input Styles for Report */
         .note-input, .time-input { width: 100%; border: 1px solid transparent; text-align: center; background: transparent; font-family: Calibri, sans-serif; font-size: inherit; padding: 4px; box-sizing: border-box; color: inherit; }
         .note-input:hover, .note-input:focus, .time-input:hover, .time-input:focus { border: 1px solid #ccc; background: #fff; outline: none; }
-
-        /* Force Dropdown Arrow to appear on datalist inputs */
-        .total-input::-webkit-calendar-picker-indicator {
-            opacity: 0.6;
-            cursor: pointer;
-        }
-        .total-input:hover::-webkit-calendar-picker-indicator {
-            opacity: 1;
-        }
         
         @media print {
             body * { visibility: hidden; }
@@ -203,8 +194,8 @@
                 </div>
             </div>
 
-            <!-- Vacation and Sick Tracking (Signifi Only) -->
-            <div id="vacation-tracking-row" style="display: flex; gap: 10px;">
+            <!-- Vacation and Sick Tracking -->
+            <div style="display: flex; gap: 10px;">
                 <div class="form-group" style="width: 50%;">
                     <label>Vacation Days / Year</label>
                     <input type="number" id="emp-vacation-total" value="10">
@@ -214,7 +205,7 @@
                     <input type="number" id="emp-vacation-used" value="0">
                 </div>
             </div>
-            <div id="sick-tracking-row" style="display: flex; gap: 10px;">
+            <div style="display: flex; gap: 10px;">
                 <div class="form-group" style="width: 50%;">
                     <label>Sick Days / Year</label>
                     <input type="number" id="emp-sick-total" value="5">
@@ -280,12 +271,13 @@
             </div>
 
             <table class="report-table" style="text-align: left;">
-                <thead id="emp-thead">
+                <thead>
                     <tr style="background-color: #d9d9d9; font-weight: bold;">
                         <th>Badge ID</th>
                         <th>Name</th>
                         <th>Dept / Agency</th>
-                        <!-- Vac/Sick headers injected via JS -->
+                        <th>Vacation (Rem/Tot)</th>
+                        <th>Sick (Rem/Tot)</th>
                         <th style="text-align:center;">Actions</th>
                     </tr>
                 </thead>
@@ -374,11 +366,12 @@
             const outVal = document.getElementById(`out_${gIdx}_${eIdx}_${colIdx}`).value.trim();
             const breakVal = document.getElementById(`break_${gIdx}_${eIdx}_${colIdx}`).value.trim();
             const totalInput = document.getElementById(`total_${gIdx}_${eIdx}_${colIdx}`);
+            const empId = totalInput.dataset.empid;
             const empType = totalInput.dataset.emptype;
 
             // Logic to Show/Hide Dropdown Arrow (SIGNIFI ONLY)
             if (!inVal && !outVal && empType === 'Signifi') {
-                totalInput.setAttribute('list', `leave_${gIdx}_${eIdx}_${colIdx}`);
+                totalInput.setAttribute('list', `leave_${empId}`);
             } else {
                 totalInput.removeAttribute('list');
             }
@@ -513,7 +506,6 @@
                 pendingEmpData = empDoc.data();
                 pendingBadgeId = badgeId;
                 
-                // PULL DOCUMENTS DIRECTLY - NO INDEX REQUIRED
                 const shiftQuery = await db.collection('shifts').where('employeeId', '==', badgeId).get();
 
                 pendingAction = 'IN';
@@ -787,19 +779,8 @@
         }
 
         function toggleTypeCustom() {
-            const selectVal = document.getElementById('emp-type-select').value;
-            document.getElementById('emp-type-custom').style.display = selectVal === 'custom' ? 'block' : 'none';
-            
-            // Hide/Show Vacation boxes based on Signifi status
-            const vacRow = document.getElementById('vacation-tracking-row');
-            const sickRow = document.getElementById('sick-tracking-row');
-            if (selectVal === 'Signifi') {
-                vacRow.style.display = 'flex';
-                sickRow.style.display = 'flex';
-            } else {
-                vacRow.style.display = 'none';
-                sickRow.style.display = 'none';
-            }
+            document.getElementById('emp-type-custom').style.display = 
+                document.getElementById('emp-type-select').value === 'custom' ? 'block' : 'none';
         }
 
         // === 4. EMPLOYEE MANAGEMENT DIRECTORY ===
@@ -814,14 +795,14 @@
             const tbody = document.getElementById('employee-list-body');
             const filterTabs = document.getElementById('dynamic-filter-tabs');
             
-            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;">Loading...</td></tr>`;
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">Loading...</td></tr>';
             
             try {
                 const snapshot = await db.collection('employees').orderBy('name').get();
                 tbody.innerHTML = '';
                 
                 if (snapshot.empty) {
-                    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;">No employees found. Add one above!</td></tr>`;
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">No employees found. Add one above!</td></tr>';
                     return;
                 }
 
@@ -843,28 +824,17 @@
                 
                 filterTabs.innerHTML = tabsHtml;
 
-                // Adjust Table Header dynamically based on Tab selected
-                const showVacSick = currentEmpFilter === 'Signifi';
-                document.getElementById('emp-thead').innerHTML = `
-                    <tr style="background-color: #d9d9d9; font-weight: bold;">
-                        <th>Badge ID</th>
-                        <th>Name</th>
-                        <th>Dept / Agency</th>
-                        ${showVacSick ? '<th>Vacation (Rem/Tot)</th><th>Sick (Rem/Tot)</th>' : ''}
-                        <th style="text-align:center;">Actions</th>
-                    </tr>
-                `;
-
                 let filteredCount = 0;
                 const renderEmployeeRow = (emp) => {
                     const safeEmpJson = JSON.stringify(emp).replace(/"/g, '&quot;');
                     let displayAgency = (emp.type === 'Agency') ? (emp.agencyName || 'Unnamed Agency') : '-';
                     
-                    let vacSickCols = "";
-                    if (showVacSick) {
-                        let vacRemDisplay = `${(emp.vacationTotal || 0) - (emp.vacationUsed || 0)} / ${emp.vacationTotal || 0}`;
-                        let sickRemDisplay = `${(emp.sickTotal || 0) - (emp.sickUsed || 0)} / ${emp.sickTotal || 0}`;
-                        vacSickCols = `<td>${vacRemDisplay}</td><td>${sickRemDisplay}</td>`;
+                    let vacRemDisplay = "-";
+                    let sickRemDisplay = "-";
+                    
+                    if (emp.type === 'Signifi') {
+                        vacRemDisplay = `${(emp.vacationTotal || 0) - (emp.vacationUsed || 0)} / ${emp.vacationTotal || 0}`;
+                        sickRemDisplay = `${(emp.sickTotal || 0) - (emp.sickUsed || 0)} / ${emp.sickTotal || 0}`;
                     }
 
                     return `
@@ -872,7 +842,8 @@
                             <td><strong>${emp.id}</strong></td>
                             <td>${emp.name}</td>
                             <td>${emp.department} <br><small style="color:gray">${displayAgency}</small></td>
-                            ${vacSickCols}
+                            <td>${vacRemDisplay}</td>
+                            <td>${sickRemDisplay}</td>
                             <td style="text-align:center;">
                                 <button class="small-btn btn-print" onclick="printBadge('${emp.id}', '${emp.name}', '${emp.department}')">Print</button>
                                 <button class="small-btn btn-edit" onclick="openEmployeeModal(${safeEmpJson})">Edit</button>
@@ -898,13 +869,12 @@
                 });
 
                 if (filteredCount === 0) {
-                    let colCount = showVacSick ? 6 : 4;
-                    tbody.innerHTML = `<tr><td colspan="${colCount}" style="text-align:center;">No employees found for this category.</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;">No employees found for this category.</td></tr>`;
                 }
 
             } catch(e) {
                 console.error(e);
-                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:red;">Database not connected. Check Firebase config.</td></tr>`;
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:red;">Database not connected. Check Firebase config.</td></tr>';
             }
         }
 
@@ -1108,7 +1078,6 @@
                     const empId = input.dataset.empid;
                     const dateStr = input.dataset.date;
                     const field = input.dataset.field;
-                    const empType = input.dataset.emptype;
                     let val = input.value.trim();
                     
                     if (empId && dateStr && field) {
@@ -1118,8 +1087,8 @@
                         }
                         overrideMap[docId][field] = val;
 
-                        // Auto-Deduct Logic (Signifi Only)
-                        if (field === 'total' && empType === 'Signifi') {
+                        // Auto-Deduct Logic
+                        if (field === 'total') {
                             let vMatch = val.match(/Vacation-\d{4}-(\d+)/i);
                             if (vMatch) {
                                 let num = parseInt(vMatch[1]);
@@ -1217,7 +1186,7 @@
             container.innerHTML = "<p>Loading timesheets...</p>";
 
             try {
-                // PULL DOCUMENTS DIRECTLY - NO INDEX REQUIRED
+                // BYPASS FIREBASE INDEXING ERRORS BY FILTERING IN JAVASCRIPT
                 const empsSnapshot = await db.collection("employees").get();
                 const employees = {};
                 const reportAgencies = new Set();
@@ -1347,6 +1316,25 @@
                             let empStartRow = excelRow;
                             let isSignifi = emp.type === "Signifi";
                             
+                            let datalistId = `leave_${emp.id}`;
+                            let datalistHtml = "";
+                            let vUsed = emp.vacationUsed || 0;
+                            let sUsed = emp.sickUsed || 0;
+                            
+                            if (isSignifi) {
+                                datalistHtml = `<datalist id="${datalistId}">`;
+                                let vTotal = emp.vacationTotal || 0;
+                                for(let v = vUsed + 1; v <= vTotal; v++) {
+                                    datalistHtml += `<option value="Vacation-${reportYear}-${v}"></option>`;
+                                }
+                                let sTotal = emp.sickTotal || 0;
+                                for(let s = sUsed + 1; s <= sTotal; s++) {
+                                    datalistHtml += `<option value="Sick-${reportYear}-${s}"></option>`;
+                                }
+                                datalistHtml += `<option value="Off"></option>`;
+                                datalistHtml += `</datalist>`;
+                            }
+                            
                             let empTotalMins = 0;
                             let rowIn = "", rowOut = "", rowBreak = "", rowTotal = "";
                             let displayAgencyCol = !isSignifi ? (emp.agencyName || "Agency") : "Signifi";
@@ -1420,26 +1408,6 @@
                                     tTotal = override.total;
                                 }
                                 
-                                // UNIQUE DATALIST ATTACHED DIRECTLY INSIDE THE TD
-                                let datalistId = `leave_${gIdx}_${eIdx}_${i}`;
-                                let datalistHtml = "";
-                                if (isSignifi) {
-                                    let vUsed = emp.vacationUsed || 0;
-                                    let vTotal = emp.vacationTotal || 0;
-                                    let sUsed = emp.sickUsed || 0;
-                                    let sTotal = emp.sickTotal || 0;
-
-                                    datalistHtml = `<datalist id="${datalistId}">`;
-                                    for(let v = vUsed + 1; v <= vTotal; v++) {
-                                        datalistHtml += `<option value="Vacation-${reportYear}-${v}"></option>`;
-                                    }
-                                    for(let s = sUsed + 1; s <= sTotal; s++) {
-                                        datalistHtml += `<option value="Sick-${reportYear}-${s}"></option>`;
-                                    }
-                                    datalistHtml += `<option value="Off"></option>`;
-                                    datalistHtml += `</datalist>`;
-                                }
-
                                 let listAttr = (!tIn && !tOut && isSignifi) ? `list="${datalistId}"` : "";
                                 
                                 let inId = `in_${gIdx}_${eIdx}_${i}`;
@@ -1456,11 +1424,7 @@
                                 rowIn += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${inId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="in" value="${tIn}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
                                 rowOut += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${outId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="out" value="${tOut}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
                                 rowBreak += `<td class="row-break" style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${breakId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="break" value="${tBreak}" class="time-input" style="color: red;" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
-                                
-                                rowTotal += `<td style="border: 1px solid #000; padding: 0; ${bgTotalRow}">
-                                    <input type="text" ${listAttr} id="${totalId}" data-emptype="${emp.type}" data-empid="${emp.id}" data-vacused="${emp.vacationUsed || 0}" data-sickused="${emp.sickUsed || 0}" data-date="${dateStr}" data-field="total" data-formula="${excelFormula}" value="${tTotal}" class="time-input total-input" style="font-weight:bold; border:none; text-align:center; width:100%; background:transparent; color:inherit;" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})">
-                                    ${datalistHtml}
-                                </td>`;
+                                rowTotal += `<td style="border: 1px solid #000; padding: 0; ${bgTotalRow}"><input type="text" ${listAttr} id="${totalId}" data-emptype="${emp.type}" data-empid="${emp.id}" data-vacused="${vUsed}" data-sickused="${sUsed}" data-date="${dateStr}" data-field="total" data-formula="${excelFormula}" value="${tTotal}" class="time-input total-input" style="font-weight:bold; border:none; text-align:center; width:100%; background:transparent; color:inherit;" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
                             }
 
                             let fmtEmpTotal = "";
@@ -1479,7 +1443,7 @@
 
                             html += `<tr>`;
                             html += `<td rowspan="4" style="width:10%; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;">${displayAgencyCol}</td>`;
-                            html += `<td rowspan="4" style="width:10%; font-weight:bold; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;">${emp.name}</td>`;
+                            html += `<td rowspan="4" style="width:10%; font-weight:bold; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;">${emp.name}${datalistHtml}</td>`;
                             html += `<td style="border: 1px solid #000; background-color: #ffffff; text-align: center;">In</td>${rowIn}`;
                             
                             html += `<td id="emptotal_${gIdx}_${eIdx}" class="group-emptotal-${gIdx}" data-formula="${empTotalFormula}" rowspan="4" style="font-weight:bold; font-size: 14px; border: 1px solid #000; text-align: center; vertical-align: middle; mso-number-format:'\\[h\\]\\:mm'; background-color: #ffffff;">${fmtEmpTotal}</td>`;
