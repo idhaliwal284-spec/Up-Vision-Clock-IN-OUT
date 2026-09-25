@@ -366,6 +366,14 @@
             const outVal = document.getElementById(`out_${gIdx}_${eIdx}_${colIdx}`).value.trim();
             const breakVal = document.getElementById(`break_${gIdx}_${eIdx}_${colIdx}`).value.trim();
             const totalInput = document.getElementById(`total_${gIdx}_${eIdx}_${colIdx}`);
+            const empId = totalInput.dataset.empid;
+
+            // Logic to Show/Hide Vacation Dropdown Arrow
+            if (!inVal && !outVal) {
+                totalInput.setAttribute('list', `leave_${empId}`);
+            } else {
+                totalInput.removeAttribute('list');
+            }
 
             const parseTime = (str) => {
                 if(!str || !str.includes(':')) return 0;
@@ -394,8 +402,8 @@
             let newTotal = formatTime(netMins);
             let currentTotal = totalInput.value.trim().toLowerCase();
             
-            // Protect explicit text entries like "Vacation" or "Sick" from being zeroed out
-            if (newTotal === "" && (currentTotal.includes('vacation') || currentTotal.includes('sick'))) {
+            // Protect explicit text entries like "Vacation", "Sick", or "Off" from being zeroed out
+            if (newTotal === "" && (currentTotal.includes('vacation') || currentTotal.includes('sick') || currentTotal === 'off')) {
                 // Do nothing
             } else {
                 totalInput.value = newTotal;
@@ -434,10 +442,10 @@
         // Database Connection Indicator Logic
         const statusCircle = document.getElementById('connection-status');
         db.collection('employees').limit(1).get().then(() => {
-            statusCircle.style.backgroundColor = '#28a745'; // Green
+            statusCircle.style.backgroundColor = '#28a745'; 
             statusCircle.title = "Database Connected";
         }).catch((err) => {
-            statusCircle.style.backgroundColor = '#dc3545'; // Red
+            statusCircle.style.backgroundColor = '#dc3545'; 
             statusCircle.title = "Database Error: " + err.message;
         });
 
@@ -1082,7 +1090,7 @@
                                 if (num > currentDbVacUsed) {
                                     if (!empUpdates[empId]) empUpdates[empId] = {};
                                     empUpdates[empId].vacationUsed = num;
-                                    input.dataset.vacused = num; // update DOM memory
+                                    input.dataset.vacused = num; 
                                 }
                             }
                             
@@ -1122,8 +1130,8 @@
                 await batch.commit();
                 alert("Changes saved successfully! These edits will now persist.");
                 
-                generateReport(); // Refresh everything visually
-                loadEmployees(); // Update the balances on the backend tab silently
+                generateReport(); 
+                loadEmployees(); 
             } catch(e) {
                 console.error(e);
                 alert("Error saving changes.");
@@ -1292,7 +1300,6 @@
                             eIdx++;
                             let empStartRow = excelRow;
                             
-                            // Smart Vacation / Sick Datalist Builder
                             let datalistId = `leave_${emp.id}`;
                             let datalistHtml = `<datalist id="${datalistId}">`;
                             let vUsed = emp.vacationUsed || 0;
@@ -1305,6 +1312,7 @@
                             for(let s = sUsed + 1; s <= sTotal; s++) {
                                 datalistHtml += `<option value="Sick-${reportYear}-${s}"></option>`;
                             }
+                            datalistHtml += `<option value="Off"></option>`;
                             datalistHtml += `</datalist>`;
                             
                             let empTotalMins = 0;
@@ -1380,6 +1388,8 @@
                                     tTotal = override.total;
                                 }
                                 
+                                let listAttr = (!tIn && !tOut) ? `list="${datalistId}"` : "";
+                                
                                 let inId = `in_${gIdx}_${eIdx}_${i}`;
                                 let outId = `out_${gIdx}_${eIdx}_${i}`;
                                 let breakId = `break_${gIdx}_${eIdx}_${i}`;
@@ -1389,14 +1399,12 @@
                                 let inCell = `${colLtr}${empStartRow}`;
                                 let outCell = `${colLtr}${empStartRow + 1}`;
                                 let breakCell = `${colLtr}${empStartRow + 2}`;
-                                
-                                // Clean Excel math string for blank breaks natively
                                 let excelFormula = `=IFERROR(${outCell}-${inCell}-IF(${breakCell}="",0,${breakCell}), 0)`;
 
                                 rowIn += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${inId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="in" value="${tIn}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
                                 rowOut += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${outId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="out" value="${tOut}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
                                 rowBreak += `<td class="row-break" style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${breakId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="break" value="${tBreak}" class="time-input" style="color: red;" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
-                                rowTotal += `<td style="border: 1px solid #000; padding: 0; ${bgTotalRow}"><input type="text" list="${datalistId}" id="${totalId}" data-empid="${emp.id}" data-vacused="${vUsed}" data-sickused="${sUsed}" data-date="${dateStr}" data-field="total" data-formula="${excelFormula}" value="${tTotal}" class="time-input total-input" style="font-weight:bold; border:none; text-align:center; width:100%; background:transparent; color:inherit;" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
+                                rowTotal += `<td style="border: 1px solid #000; padding: 0; ${bgTotalRow}"><input type="text" ${listAttr} id="${totalId}" data-empid="${emp.id}" data-vacused="${vUsed}" data-sickused="${sUsed}" data-date="${dateStr}" data-field="total" data-formula="${excelFormula}" value="${tTotal}" class="time-input total-input" style="font-weight:bold; border:none; text-align:center; width:100%; background:transparent; color:inherit;" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
                             }
 
                             let fmtEmpTotal = "";
@@ -1431,6 +1439,8 @@
                             
                             excelRow += 4;
                         });
+                        
+                        let fmtDeptTotal = `${Math.floor(deptTotalMins / 60)}:${(deptTotalMins % 60).toString().padStart(2, '0')}`;
                         
                         let totalRowLeftSpan = 3 + rangeDates.length;
                         let groupTotalFormula = `=SUM(${deptTotalRefs.join(',')})`;
@@ -1483,7 +1493,8 @@
                 const td = cloneInputs[i].parentNode;
                 
                 if (originalInputs[i].dataset.field === 'total') {
-                    if (val.toLowerCase().includes('vacation') || val.toLowerCase().includes('sick')) {
+                    let vLower = val.toLowerCase();
+                    if (vLower.includes('vacation') || vLower.includes('sick') || vLower === 'off') {
                         originalInputs[i].removeAttribute('data-formula');
                         cloneInputs[i].removeAttribute('data-formula');
                         if (td.getAttribute("style")) {
@@ -1492,20 +1503,19 @@
                     }
                 }
                 
-                if (originalInputs[i].classList.contains('time-input') && val !== "" && val.toLowerCase() !== "missed" && !val.toLowerCase().includes('vacation') && !val.toLowerCase().includes('sick')) {
+                if (originalInputs[i].classList.contains('time-input') && val !== "" && val.toLowerCase() !== "missed" && !val.toLowerCase().includes('vacation') && !val.toLowerCase().includes('sick') && val.toLowerCase() !== 'off') {
                     td.setAttribute("style", td.getAttribute("style") + "mso-number-format:'\\[h\\]\\:mm';");
                 }
                 
                 td.innerHTML = `<span style="${originalInputs[i].style.color ? 'color:red;' : ''}">${val === '0:00' ? '' : val}</span>`;
             }
 
-            // Strictly inject formulas for native Excel processing
             const formulaCells = clone.querySelectorAll('[data-formula]');
             formulaCells.forEach(cell => {
                 const formTxt = cell.getAttribute('data-formula');
                 if (formTxt) {
-                    cell.setAttribute('x:fmla', formTxt); // Best practice for old XLS formats
-                    cell.innerText = formTxt; // Works natively in modern Excel
+                    cell.setAttribute('x:fmla', formTxt); 
+                    cell.innerText = formTxt; 
                 }
             });
 
