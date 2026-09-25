@@ -1008,15 +1008,13 @@
                 const timeInputs = document.querySelectorAll('.time-input');
                 const overrideMap = {};
                 
-                // Read modified times
                 timeInputs.forEach(input => {
-                    const parts = input.id.split('_'); 
-                    if (parts.length === 4) {
-                        const field = parts[0]; 
-                        const empId = parts[1];
-                        const dateStr = parts[2];
+                    const empId = input.dataset.empid;
+                    const dateStr = input.dataset.date;
+                    const field = input.dataset.field;
+                    
+                    if (empId && dateStr && field) {
                         const docId = empId + "_" + dateStr;
-                        
                         if (!overrideMap[docId]) {
                             overrideMap[docId] = { empId: empId, date: dateStr };
                         }
@@ -1029,7 +1027,6 @@
                     batch.set(docRef, overrideMap[docId], { merge: true });
                 });
                 
-                // Read modified notes
                 const noteInputs = document.querySelectorAll('.note-input');
                 noteInputs.forEach(input => {
                     const empId = input.dataset.empid;
@@ -1088,7 +1085,6 @@
             container.innerHTML = "<p>Loading timesheets...</p>";
 
             try {
-                // 1. Fetch raw data
                 const empsSnapshot = await db.collection("employees").get();
                 const employees = {};
                 const reportAgencies = new Set();
@@ -1101,7 +1097,6 @@
                     }
                 });
 
-                // Fetch manual overrides and notes
                 const overridesSnap = await db.collection("timesheet_overrides")
                     .where("date", ">=", startStr)
                     .where("date", "<=", endStr).get();
@@ -1112,7 +1107,6 @@
                 const notesData = {};
                 notesSnap.forEach(doc => notesData[doc.id] = doc.data().note);
 
-                // Build Tabs
                 let tabsHtml = `<button class="filter-btn ${currentReportFilter === 'All' ? 'active' : ''}" onclick="setReportFilter('All')">All Reports</button>
                                 <button class="filter-btn ${currentReportFilter === 'Signifi' ? 'active' : ''}" onclick="setReportFilter('Signifi')">Signifi</button>`;
                 reportAgencies.forEach(agency => {
@@ -1146,7 +1140,6 @@
                     }
                 });
 
-                // Group by Agency, then Dept
                 const groups = {}; 
                 for (let empId in employees) {
                     let emp = employees[empId];
@@ -1162,15 +1155,19 @@
                 }
 
                 const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-                let html = `<table id="export-table" class="report-table" style="border: 2px solid #000; border-collapse: collapse; font-family: Calibri, sans-serif; font-size: 11pt;">`;
+                let html = "";
+                let gIdx = 0;
                 let excelRow = 1; 
 
                 for (let agency in groups) {
                     for (let dept in groups[agency]) {
+                        gIdx++;
                         let tableTitle = `${dept} - Timesheet${agency === 'Signifi' ? '' : ' - ' + agency}`;
                         let firstColHeader = `${dept} - timesheet at Tech Avn.`;
                         let titleColspan = rangeDates.length + 6;
 
+                        html += `<table class="report-table" style="border: 2px solid #000; border-collapse: collapse; font-family: Calibri, sans-serif; font-size: 11pt;">`;
+                        
                         html += `<tr><td colspan="${titleColspan}" class="report-header-title" style="background-color: #bfbfbf; border: 2px solid #000; font-size: 18px; padding: 10px; font-weight: bold; text-align: center;">${tableTitle}</td></tr>`;
                         excelRow++;
                         
@@ -1207,6 +1204,7 @@
                             eIdx++;
                             let empStartRow = excelRow;
                             
+                            let empTotalMins = 0;
                             let rowIn = "", rowOut = "", rowBreak = "", rowTotal = "";
                             let isAgency = emp.type === "Agency";
                             let displayAgencyCol = isAgency ? (emp.agencyName || "Agency") : "Signifi";
@@ -1227,11 +1225,8 @@
                                 
                                 let tIn = "", tOut = "", tBreak = "";
                                 
-                                if (override) {
-                                    tIn = override.in || "";
-                                    tOut = override.out || "";
-                                    tBreak = override.break || "";
-                                } else if (dayData && dayData.in) {
+                                // Process Base Shifts
+                                if (dayData && dayData.in) {
                                     let roundedIn = new Date(dayData.in);
                                     if ((roundedIn.getHours() === 8 && roundedIn.getMinutes() >= 30) || (roundedIn.getHours() === 9 && roundedIn.getMinutes() <= 14)) {
                                         roundedIn.setHours(9, 0, 0, 0);
@@ -1248,31 +1243,65 @@
                                         let onePM = new Date(roundedOut);
                                         onePM.setHours(13, 0, 0, 0);
                                         tBreak = (isAgency && roundedOut > onePM) ? "0:45" : "";
+                                    } else {
+                                        tOut = "Missed";
+                                    }
+                                }
+
+                                // Apply Saved Overrides
+                                if (override) {
+                                    if (override.in !== undefined) tIn = override.in;
+                                    if (override.out !== undefined) tOut = override.out;
+                                    if (override.break !== undefined) tBreak = override.break;
+                                }
+
+                                // Calculate initial UI Total
+                                let tTotal = "";
+                                const parseTimeStr = (str) => {
+                                    if(!str || !str.includes(':')) return 0;
+                                    let p = str.split(':');
+                                    return parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
+                                };
+                                
+                                let netMins = 0;
+                                if (tIn && tOut && tOut.toLowerCase() !== "missed") {
+                                    let inM = parseTimeStr(tIn);
+                                    let outM = parseTimeStr(tOut);
+                                    let bM = parseTimeStr(tBreak);
+                                    if (outM >= inM) {
+                                        netMins = Math.max(0, (outM - inM) - bM);
                                     }
                                 }
                                 
-                                let inId = `in_${agency.replace(/\s/g,'')}_${eIdx}_${i}`;
-                                let outId = `out_${agency.replace(/\s/g,'')}_${eIdx}_${i}`;
-                                let breakId = `break_${agency.replace(/\s/g,'')}_${eIdx}_${i}`;
-                                let totalId = `total_${agency.replace(/\s/g,'')}_${eIdx}_${i}`;
+                                empTotalMins += netMins;
+                                if (netMins > 0 || (tIn && tOut && tOut.toLowerCase() !== "missed")) {
+                                    tTotal = `${Math.floor(netMins / 60)}:${(netMins % 60).toString().padStart(2, '0')}`;
+                                }
+                                
+                                let inId = `in_${gIdx}_${eIdx}_${i}`;
+                                let outId = `out_${gIdx}_${eIdx}_${i}`;
+                                let breakId = `break_${gIdx}_${eIdx}_${i}`;
+                                let totalId = `total_${gIdx}_${eIdx}_${i}`;
 
                                 let colLtr = getColLtr(3 + i);
                                 let inCell = `${colLtr}${empStartRow}`;
                                 let outCell = `${colLtr}${empStartRow + 1}`;
                                 let breakCell = `${colLtr}${empStartRow + 2}`;
-                                
-                                // Excel exact formula logic
                                 let excelFormula = `=IFERROR(${outCell}-${inCell}-${breakCell}, 0)`;
 
-                                rowIn += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${inId}" data-field="in" value="${tIn}" class="time-input" onchange="recalcTime('${agency.replace(/\s/g,'')}', ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
-                                rowOut += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${outId}" data-field="out" value="${tOut}" class="time-input" onchange="recalcTime('${agency.replace(/\s/g,'')}', ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
-                                rowBreak += `<td class="row-break" style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${breakId}" data-field="break" value="${tBreak}" class="time-input" style="color: red;" onchange="recalcTime('${agency.replace(/\s/g,'')}', ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
-                                rowTotal += `<td id="${totalId}" data-formula="${excelFormula}" style="font-weight:bold; border: 1px solid #000; text-align: center; mso-number-format:'\\[h\\]\\:mm'; ${bgTotalRow}"></td>`;
+                                rowIn += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${inId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="in" value="${tIn}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
+                                rowOut += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${outId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="out" value="${tOut}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
+                                rowBreak += `<td class="row-break" style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${breakId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="break" value="${tBreak}" class="time-input" style="color: red;" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
+                                rowTotal += `<td id="${totalId}" data-formula="${excelFormula}" style="font-weight:bold; border: 1px solid #000; text-align: center; mso-number-format:'\\[h\\]\\:mm'; ${bgTotalRow}">${tTotal}</td>`;
+                            }
+
+                            let fmtEmpTotal = "";
+                            if(empTotalMins > 0) {
+                                fmtEmpTotal = `${Math.floor(empTotalMins / 60)}:${(empTotalMins % 60).toString().padStart(2, '0')}`;
                             }
 
                             let defaultNote = notesData[emp.id] ? notesData[emp.id] : `Regular ${dept} Projects`;
 
-                            // Calculate Excel formulas for Totals
                             let firstTotCell = `${getColLtr(3)}${empStartRow + 3}`;
                             let lastTotCell = `${getColLtr(3 + rangeDates.length - 1)}${empStartRow + 3}`;
                             let empTotalFormula = `=SUM(${firstTotCell}:${lastTotCell})`;
@@ -1285,7 +1314,7 @@
                             html += `<td rowspan="4" style="width:10%; font-weight:bold; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;">${emp.name}</td>`;
                             html += `<td style="border: 1px solid #000; background-color: #ffffff; text-align: center;">In</td>${rowIn}`;
                             
-                            html += `<td id="emptotal-${agency.replace(/\s/g,'')}-${eIdx}" class="group-emptotal-${agency.replace(/\s/g,'')}" data-formula="${empTotalFormula}" rowspan="4" style="font-weight:bold; font-size: 14px; border: 1px solid #000; text-align: center; vertical-align: middle; mso-number-format:'\\[h\\]\\:mm'; background-color: #ffffff;"></td>`;
+                            html += `<td id="emptotal_${gIdx}_${eIdx}" class="group-emptotal-${gIdx}" data-formula="${empTotalFormula}" rowspan="4" style="font-weight:bold; font-size: 14px; border: 1px solid #000; text-align: center; vertical-align: middle; mso-number-format:'\\[h\\]\\:mm'; background-color: #ffffff;">${fmtEmpTotal}</td>`;
                             html += `<td rowspan="4" class="text-green" style="border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;">${dept}</td>`;
                             
                             html += `<td rowspan="4" style="border: 1px solid #000; vertical-align: middle; background-color: #ffffff; padding: 0;">
@@ -1302,10 +1331,23 @@
                         let totalRowLeftSpan = 3 + rangeDates.length;
                         let groupTotalFormula = `=SUM(${deptTotalRefs.join(',')})`;
                         
-                        html += `<tr class="totals-row" style="background-color: #a6a6a6;"><td colspan="${totalRowLeftSpan}" style="border: 2px solid #000; font-weight:bold; text-align: center;">Total hours</td><td id="grouptotal-${agency.replace(/\s/g,'')}" data-formula="${groupTotalFormula}" class="text-green" style="border: 2px solid #000; font-weight:bold; text-align: center; mso-number-format:'\\[h\\]\\:mm';"></td><td colspan="2" style="border: 2px solid #000;"></td></tr>`;
+                        // Calculate UI initial group total
+                        let initialGroupMins = 0;
+                        groups[agency][dept].forEach((emp, i) => {
+                            let eTotalStr = document.getElementById(`emptotal_${gIdx}_${i+1}`) ? document.getElementById(`emptotal_${gIdx}_${i+1}`).innerText : "0:00";
+                            if(eTotalStr && eTotalStr.includes(':')){
+                                let parts = eTotalStr.split(':');
+                                initialGroupMins += parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+                            }
+                        });
+                        let fmtGrpTotal = "";
+                        if(initialGroupMins > 0) {
+                            fmtGrpTotal = `${Math.floor(initialGroupMins / 60)}:${(initialGroupMins % 60).toString().padStart(2, '0')}`;
+                        }
+                        
+                        html += `<tr class="totals-row" style="background-color: #a6a6a6;"><td colspan="${totalRowLeftSpan}" style="border: 2px solid #000; font-weight:bold; text-align: center;">Total hours</td><td id="grouptotal_${gIdx}" data-formula="${groupTotalFormula}" class="text-green" style="border: 2px solid #000; font-weight:bold; text-align: center; mso-number-format:'\\[h\\]\\:mm';"></td><td colspan="2" style="border: 2px solid #000;"></td></tr>`;
                         excelRow += 1;
                         
-                        // Spacer row
                         html += `<tr><td colspan="${titleColspan}" style="border: none; height: 30px;"></td></tr>`;
                         excelRow += 1;
                     }
@@ -1338,7 +1380,6 @@
                 const val = originalInputs[i].value;
                 const td = cloneInputs[i].parentNode;
                 
-                // Determine if we need mso time formatting for Excel calculation
                 if (originalInputs[i].classList.contains('time-input') && val !== "" && val.toLowerCase() !== "missed") {
                     td.setAttribute("style", td.getAttribute("style") + "mso-number-format:'\\[h\\]\\:mm';");
                 }
@@ -1346,7 +1387,6 @@
                 td.innerHTML = `<span style="${originalInputs[i].style.color ? 'color:red;' : ''}">${val === '0:00' ? '' : val}</span>`;
             }
 
-            // Inject Excel formulas into exactly the correct calculation cells
             const formulaCells = clone.querySelectorAll('[data-formula]');
             formulaCells.forEach(cell => {
                 cell.innerText = cell.getAttribute('data-formula');
