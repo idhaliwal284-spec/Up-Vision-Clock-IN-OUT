@@ -1207,7 +1207,7 @@
                         }
                         overrideMap[docId][field] = val;
 
-                        // Dynamic Leave Deduction logic (Delta based)
+                        // TRUE DELTA LEAVE DEDUCTION LOGIC
                         if (field === 'total') {
                             if (!empDeltas[empId]) empDeltas[empId] = { vac: 0, sick: 0, lieu: 0 };
                             
@@ -1222,7 +1222,6 @@
                             let newIsSick = newVal.includes('sick');
                             let newIsLieu = newVal.includes('paid lieu');
 
-                            // Compute Deltas (+1 if added, -1 if removed)
                             if (newIsVac && !oldIsVac) empDeltas[empId].vac++;
                             if (!newIsVac && oldIsVac) empDeltas[empId].vac--;
 
@@ -1241,7 +1240,7 @@
                     batch.set(docRef, overrideMap[docId], { merge: true });
                 });
                 
-                // Apply dynamic deltas to the employee balances
+                // Apply dynamic deltas to the employee balances safely
                 for (let empId of Object.keys(empDeltas)) {
                     let delta = empDeltas[empId];
                     if (delta.vac !== 0 || delta.sick !== 0 || delta.lieu !== 0) {
@@ -1632,7 +1631,7 @@
                             excelRow += 4;
                         });
                         
-                        let totalRowLeftSpan = 2 + rangeDates.length;
+                        let totalRowLeftSpan = 2 + rangeDates.length; 
                         
                         html += `<tr class="totals-row" style="background-color: #a6a6a6;">`;
                         
