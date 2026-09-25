@@ -313,17 +313,26 @@
                 <button class="filter-btn active" onclick="setReportFilter('All')">All Reports</button>
             </div>
 
-            <div class="report-controls" style="background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #ddd;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <label style="font-size: 1.2rem;"><strong>Select Range:</strong></label>
-                    <input type="date" id="report-start" style="padding: 10px; font-size: 1rem; border-radius: 4px; border: 1px solid #ccc;">
-                    <span style="font-size: 1.2rem; font-weight: bold;">to</span>
-                    <input type="date" id="report-end" style="padding: 10px; font-size: 1rem; border-radius: 4px; border: 1px solid #ccc;">
-                    <button class="action-btn" onclick="generateReport()" style="background-color: #007bff; margin-left: 10px;">Generate</button>
+            <div class="report-controls" style="background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #ddd; flex-direction: column; align-items: stretch; gap: 15px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <label style="font-size: 1.2rem;"><strong>Select Range:</strong></label>
+                        <input type="date" id="report-start" style="padding: 10px; font-size: 1rem; border-radius: 4px; border: 1px solid #ccc;">
+                        <span style="font-size: 1.2rem; font-weight: bold;">to</span>
+                        <input type="date" id="report-end" style="padding: 10px; font-size: 1rem; border-radius: 4px; border: 1px solid #ccc;">
+                        <button class="action-btn" onclick="generateReport()" style="background-color: #007bff; margin-left: 10px;">Generate</button>
+                    </div>
+                    <div>
+                        <button class="action-btn" id="save-changes-btn" onclick="saveReportChanges()" style="background-color: #28a745; margin-right: 10px;">Save Changes</button>
+                        <button class="action-btn" onclick="exportReportToExcel()">Export to Excel</button>
+                    </div>
                 </div>
-                <div>
-                    <button class="action-btn" id="save-changes-btn" onclick="saveReportChanges()" style="background-color: #28a745; margin-right: 10px;">Save Changes</button>
-                    <button class="action-btn" onclick="exportReportToExcel()">Export to Excel</button>
+                
+                <div style="display: flex; align-items: center; gap: 10px; border-top: 1px solid #ccc; padding-top: 15px;">
+                    <label style="font-size: 1.1rem;"><strong>Mark Stat Holiday:</strong></label>
+                    <input type="date" id="stat-holiday-date" style="padding: 10px; font-size: 1rem; border-radius: 4px; border: 1px solid #ccc;">
+                    <button class="action-btn" onclick="applyStatHoliday()" style="background-color: #17a2b8;">Apply to Report</button>
+                    <span style="color: #666; font-size: 0.95rem; margin-left: 10px;">(Sets 'Stat Holiday' for Signifi and 'Off' for Agencies on this date)</span>
                 </div>
             </div>
             
@@ -405,8 +414,8 @@
             let newTotal = formatTime(netMins);
             let currentTotal = totalInput.value.trim().toLowerCase();
             
-            // Protect explicit text entries like Vacation, Sick, Paid Lieu, or Off from being zeroed out
-            if (newTotal === "" && (currentTotal.includes('vacation') || currentTotal.includes('sick') || currentTotal.includes('paid lieu') || currentTotal.includes('off'))) {
+            // Protect explicit text entries from being zeroed out
+            if (newTotal === "" && (currentTotal.includes('vacation') || currentTotal.includes('sick') || currentTotal.includes('paid lieu') || currentTotal.includes('off') || currentTotal.includes('stat holiday'))) {
                 // Do nothing
             } else {
                 totalInput.value = newTotal;
@@ -418,7 +427,7 @@
                 let tVal = document.getElementById(`total_${gIdx}_${eIdx}_${i}`).value.trim().toLowerCase();
                 
                 // Signifi Paid Leave Logic (9 to 5 = 8 hours = 480 mins)
-                if (tVal.includes('vacation') || tVal.includes('sick') || tVal.includes('paid lieu')) {
+                if (tVal.includes('vacation') || tVal.includes('sick') || tVal.includes('paid lieu') || tVal.includes('stat holiday')) {
                     empTotal += 480; 
                 } else if (tVal.includes('off')) {
                     empTotal += 0;
@@ -1079,6 +1088,31 @@
             generateReport();
         }
 
+        window.applyStatHoliday = function() {
+            const statDateStr = document.getElementById('stat-holiday-date').value;
+            if (!statDateStr) return alert("Please select a date for the Stat Holiday.");
+            
+            const totalInputs = document.querySelectorAll(`.total-input[data-date="${statDateStr}"]`);
+            if (totalInputs.length === 0) {
+                return alert("The selected date is not in the currently generated report. Please ensure the date falls within the selected range and generate the report first.");
+            }
+            
+            if (!confirm(`Apply Stat Holiday rules to all employees for ${statDateStr}?\n\nSignifi = 8 Paid Hours\nAgencies = Off`)) return;
+            
+            totalInputs.forEach(input => {
+                const empType = input.dataset.emptype;
+                if (empType === 'Signifi') {
+                    input.value = "Stat Holiday";
+                } else if (empType === 'Agency') {
+                    input.value = "Off";
+                }
+                
+                input.dispatchEvent(new Event('change'));
+            });
+            
+            alert("Stat Holiday applied to the report! Click 'Save Changes' to permanently save to the database.");
+        };
+
         async function saveReportChanges() {
             const btn = document.getElementById('save-changes-btn');
             btn.innerText = "Saving...";
@@ -1354,8 +1388,8 @@
                                 datalistHtml += `<option value="Paid Lieu-${reportYear}-${l}"></option>`;
                             }
                             
-                            // Optionally include an untracked 'Off' for Signifi employees
                             if (emp.type === 'Signifi') {
+                                datalistHtml += `<option value="Stat Holiday"></option>`;
                                 datalistHtml += `<option value="Off"></option>`;
                             }
                             
@@ -1450,7 +1484,7 @@
                                 rowIn += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${inId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="in" value="${tIn}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
                                 rowOut += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${outId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="out" value="${tOut}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
                                 rowBreak += `<td class="row-break" style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${breakId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="break" value="${tBreak}" class="time-input" style="color: red;" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
-                                rowTotal += `<td style="border: 1px solid #000; padding: 0; ${bgTotalRow}"><input type="text" list="${datalistId}" id="${totalId}" data-empid="${emp.id}" data-vacused="${emp.vacationUsed||0}" data-sickused="${emp.sickUsed||0}" data-lieuused="${emp.lieuUsed||0}" data-date="${dateStr}" data-field="total" data-formula="${excelFormula}" value="${tTotal}" class="time-input total-input" style="font-weight:bold; border:none; text-align:center; width:100%; background:transparent; color:inherit;" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
+                                rowTotal += `<td style="border: 1px solid #000; padding: 0; ${bgTotalRow}"><input type="text" list="${datalistId}" id="${totalId}" data-empid="${emp.id}" data-emptype="${emp.type}" data-vacused="${emp.vacationUsed||0}" data-sickused="${emp.sickUsed||0}" data-lieuused="${emp.lieuUsed||0}" data-date="${dateStr}" data-field="total" data-formula="${excelFormula}" value="${tTotal}" class="time-input total-input" style="font-weight:bold; border:none; text-align:center; width:100%; background:transparent; color:inherit;" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length})"></td>`;
                             }
 
                             let fmtEmpTotal = "";
@@ -1465,9 +1499,9 @@
                             
                             let empTotalFormula = `=SUM(${firstTotCell}:${lastTotCell})`;
                             
-                            // If Signifi, modify Excel formula to sum normal hours PLUS 8 hours per Vacation/Sick/Lieu day
+                            // If Signifi, modify Excel formula to sum normal hours PLUS 8 hours per Vacation/Sick/Lieu/Stat Holiday day
                             if (emp.type === 'Signifi') {
-                                empTotalFormula = `=SUM(${firstTotCell}:${lastTotCell}) + (COUNTIF(${firstTotCell}:${lastTotCell}, "*Vacation*")*TIME(8,0,0)) + (COUNTIF(${firstTotCell}:${lastTotCell}, "*Sick*")*TIME(8,0,0)) + (COUNTIF(${firstTotCell}:${lastTotCell}, "*Paid Lieu*")*TIME(8,0,0))`;
+                                empTotalFormula = `=SUM(${firstTotCell}:${lastTotCell}) + (COUNTIF(${firstTotCell}:${lastTotCell}, "*Vacation*")*TIME(8,0,0)) + (COUNTIF(${firstTotCell}:${lastTotCell}, "*Sick*")*TIME(8,0,0)) + (COUNTIF(${firstTotCell}:${lastTotCell}, "*Paid Lieu*")*TIME(8,0,0)) + (COUNTIF(${firstTotCell}:${lastTotCell}, "*Stat Holiday*")*TIME(8,0,0))`;
                             }
                             
                             let totColLtr = getColLtr(3 + rangeDates.length);
@@ -1543,7 +1577,7 @@
                 const td = cloneInputs[i].parentNode;
                 
                 if (originalInputs[i].dataset.field === 'total') {
-                    if (val.toLowerCase().includes('vacation') || val.toLowerCase().includes('sick') || val.toLowerCase().includes('paid lieu') || val.toLowerCase().includes('off')) {
+                    if (val.toLowerCase().includes('vacation') || val.toLowerCase().includes('sick') || val.toLowerCase().includes('paid lieu') || val.toLowerCase().includes('off') || val.toLowerCase().includes('stat holiday')) {
                         originalInputs[i].removeAttribute('data-formula');
                         cloneInputs[i].removeAttribute('data-formula');
                         if (td.getAttribute("style")) {
@@ -1552,7 +1586,7 @@
                     }
                 }
                 
-                if (originalInputs[i].classList.contains('time-input') && val !== "" && val.toLowerCase() !== "missed" && !val.toLowerCase().includes('vacation') && !val.toLowerCase().includes('sick') && !val.toLowerCase().includes('paid lieu') && !val.toLowerCase().includes('off')) {
+                if (originalInputs[i].classList.contains('time-input') && val !== "" && val.toLowerCase() !== "missed" && !val.toLowerCase().includes('vacation') && !val.toLowerCase().includes('sick') && !val.toLowerCase().includes('paid lieu') && !val.toLowerCase().includes('off') && !val.toLowerCase().includes('stat holiday')) {
                     td.setAttribute("style", td.getAttribute("style") + "mso-number-format:'\\[h\\]\\:mm';");
                 }
                 
