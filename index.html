@@ -1302,11 +1302,18 @@
                     let val = input.value.trim();
                     
                     if (empId && dateStr && field) {
-                        const docId = empId + "_" + dateStr;
-                        if (!overrideMap[docId]) {
-                            overrideMap[docId] = { empId: empId, date: dateStr };
+                        // FIX: Prevent saving "Missed" or empty INs into the database override table
+                        let skipOverride = false;
+                        if (field === 'out' && val.toLowerCase() === 'missed') skipOverride = true;
+                        if (field === 'in' && val === '') skipOverride = true;
+
+                        if (!skipOverride) {
+                            const docId = empId + "_" + dateStr;
+                            if (!overrideMap[docId]) {
+                                overrideMap[docId] = { empId: empId, date: dateStr };
+                            }
+                            overrideMap[docId][field] = val;
                         }
-                        overrideMap[docId][field] = val;
 
                         // TRUE DELTA LEAVE DEDUCTION LOGIC
                         if (field === 'total') {
@@ -1335,11 +1342,13 @@
                     }
                 });
                 
+                // Commit the manual cell overrides
                 Object.keys(overrideMap).forEach(docId => {
                     const docRef = db.collection('timesheet_overrides').doc(docId);
                     batch.set(docRef, overrideMap[docId], { merge: true });
                 });
                 
+                // Apply dynamic deltas to the employee balances safely
                 for (let empId of Object.keys(empDeltas)) {
                     let delta = empDeltas[empId];
                     if (delta.vac !== 0 || delta.sick !== 0 || delta.lieu !== 0) {
@@ -1359,6 +1368,7 @@
                     }
                 }
 
+                // Save Notes
                 const noteInputs = document.querySelectorAll('.note-input');
                 noteInputs.forEach(input => {
                     const empId = input.dataset.empid;
@@ -1371,8 +1381,8 @@
                 await batch.commit();
                 alert("Changes saved successfully! These edits will now persist.");
                 
-                generateReport(); 
-                loadEmployees(); 
+                generateReport(); // Refresh everything visually
+                loadEmployees(); // Update the balances on the backend tab silently
             } catch(e) {
                 console.error(e);
                 alert("Error saving changes.");
@@ -1643,8 +1653,9 @@
                                 }
 
                                 if (override) {
-                                    if (override.in !== undefined) tIn = override.in;
-                                    if (override.out !== undefined) tOut = override.out;
+                                    if (override.in !== undefined && override.in !== "") tIn = override.in;
+                                    // FIX: Ignore "Missed" overrides so real punches can flow through
+                                    if (override.out !== undefined && override.out.toLowerCase() !== "missed" && override.out !== "") tOut = override.out;
                                     if (override.break !== undefined) tBreak = override.break;
                                 }
 
