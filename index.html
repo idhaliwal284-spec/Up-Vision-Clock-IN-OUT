@@ -409,6 +409,7 @@
         let currentReportFilter = 'All'; 
         let currentDeptFilters = ['All']; 
         let availableDepartments = [];
+        let currentEmpFilter = 'All';
 
         // === LIVE TIMESHEET RECALCULATION ENGINE (UI) ===
         window.recalcTime = function(gIdx, eIdx, colIdx, numCols, empType, payType) {
@@ -805,30 +806,18 @@
                         alert("Incorrect Password.");
                     }
                 } else {
-                    if (user === 'idhaliwal@signifi.com' && pass === 'Yaarpardesi@18') {
-                        try {
-                            const newDoc = await db.collection('admins').add({username: user, password: pass, role: 'Super Admin'});
-                            grantAccess('Super Admin', newDoc.id);
-                        } catch(e) { grantAccess('Super Admin', 'local-super-admin'); } 
-                    } 
-                    else if (user === 'admin' && pass === '1985') { 
-                        try {
-                            const newDoc = await db.collection('admins').add({username: user, password: pass, role: 'Admin'});
-                            grantAccess('Admin', newDoc.id);
-                        } catch(e) { grantAccess('Admin', 'local-admin'); }
-                    } 
-                    else {
+                    // Check if admins collection is completely empty (initial setup)
+                    const allAdmins = await db.collection('admins').get();
+                    if (allAdmins.empty) {
+                        const newDoc = await db.collection('admins').add({ username: user, password: pass, role: 'Super Admin' });
+                        grantAccess('Super Admin', newDoc.id);
+                        alert("Initial Super Admin account created successfully in database!");
+                    } else {
                         alert("Invalid Username or Password.");
                     }
                 }
             } catch(err) {
-                if (user === 'idhaliwal@signifi.com' && pass === 'Yaarpardesi@18') {
-                    grantAccess('Super Admin', 'local-super-admin');
-                } else if (user === 'admin' && pass === '1985') {
-                    grantAccess('Admin', 'local-admin');
-                } else {
-                    alert("Database disconnected or permission denied. Cannot verify login.");
-                }
+                alert("Database disconnected or permission denied. Cannot verify login: " + err.message);
             }
         }
 
@@ -922,19 +911,27 @@
             if (!u || !p) return alert("Please fill all fields");
 
             try {
+                const existing = await db.collection('admins').where('username', '==', u).get();
+                if (!existing.empty) {
+                    return alert(`Admin user "${u}" already exists in the database.`);
+                }
                 await db.collection('admins').add({ username: u, password: p, role: r });
                 closeModal('add-admin-modal');
                 loadAdminUsers();
             } catch (e) {
-                alert("Error saving user.");
+                alert("Error saving user: " + e.message);
             }
         }
 
         async function deleteAdmin(id, name) {
             if (id === currentAdminId) return alert("You cannot delete your own account while you are logged in.");
-            if (confirm(`Are you sure you want to revoke access for ${name}?`)) {
-                await db.collection('admins').doc(id).delete();
-                loadAdminUsers();
+            if (confirm(`ACCIDENTAL ERASE PROTECTION:\nAre you sure you want to revoke admin access for user "${name}"?`)) {
+                try {
+                    await db.collection('admins').doc(id).delete();
+                    loadAdminUsers();
+                } catch(e) {
+                    alert("Failed to delete user: " + e.message);
+                }
             }
         }
 
@@ -1150,6 +1147,16 @@
             const isNew = !originalId;
 
             try {
+                // OVERWRITE & ERASE PROTECTION:
+                // Check if badgeId already exists in Firestore for a DIFFERENT employee before saving
+                if (isNew || originalId !== badgeId) {
+                    const existingDoc = await db.collection('employees').doc(badgeId).get();
+                    if (existingDoc.exists) {
+                        alert(`OVERWRITE PREVENTED: Badge ID "${badgeId}" is already assigned to employee "${existingDoc.data().name}". Please use a unique Badge ID.`);
+                        return;
+                    }
+                }
+
                 if (!isNew && originalId !== badgeId) {
                     await db.collection('employees').doc(originalId).delete();
                 }
@@ -1179,18 +1186,20 @@
                 }
             } catch(e) {
                 console.error("Database save failed:", e);
-                alert("Database save failed. Ensure your Firebase API key is added.");
+                alert("Database save failed: " + e.message);
             }
         }
 
         async function deleteEmployee(badgeId, name) {
-            if(confirm(`Are you SURE you want to delete ${name} (Badge: ${badgeId})?\n\nThey will no longer be able to punch in/out. This action cannot be undone.`)) {
-                try {
-                    await db.collection('employees').doc(badgeId).delete();
-                    loadEmployees(); 
-                } catch(e) {
-                    console.error(e);
-                    alert("Failed to delete employee.");
+            if(confirm(`ACCIDENTAL ERASE PROTECTION:\nAre you SURE you want to delete ${name} (Badge: ${badgeId})?\n\nThis will remove their profile from the database. This action cannot be undone.`)) {
+                if(confirm(`Final confirmation: Permanently delete employee "${name}"?`)) {
+                    try {
+                        await db.collection('employees').doc(badgeId).delete();
+                        loadEmployees(); 
+                    } catch(e) {
+                        console.error(e);
+                        alert("Failed to delete employee: " + e.message);
+                    }
                 }
             }
         }
@@ -1305,7 +1314,7 @@
                     let val = input.value.trim();
                     
                     if (empId && dateStr && field) {
-                        // FIX: Prevent saving "Missed" or empty INs into the database override table
+                        // Prevent saving "Missed" or empty INs into the database override table
                         let skipOverride = false;
                         if (field === 'out' && val.toLowerCase() === 'missed') skipOverride = true;
                         if (field === 'in' && val === '') skipOverride = true;
@@ -1341,6 +1350,10 @@
 
                             if (newIsLieu && !oldIsLieu) empDeltas[empId].lieu++;
                             if (!newIsLieu && oldIsLieu) empDeltas[empId].lieu--;
+
+                            // OVERWRITE PROTECTION: Update dataset.original to current value
+                            // so repeated saves in the same view session do not double-apply deltas!
+                            input.dataset.original = val;
                         }
                     }
                 });
@@ -1388,7 +1401,7 @@
                 loadEmployees(); // Update the balances on the backend tab silently
             } catch(e) {
                 console.error(e);
-                alert("Error saving changes.");
+                alert("Error saving changes: " + e.message);
             }
             btn.innerText = "Save Changes";
         }
@@ -1655,7 +1668,6 @@
 
                                 if (override) {
                                     if (override.in !== undefined && override.in !== "") tIn = override.in;
-                                    // FIX: Ignore "Missed" overrides so real punches can flow through
                                     if (override.out !== undefined && override.out.toLowerCase() !== "missed" && override.out !== "") tOut = override.out;
                                     if (override.break !== undefined) tBreak = override.break;
                                 }
