@@ -194,44 +194,46 @@
                 </div>
             </div>
 
-            <!-- Pay Type (Only for Signifi) -->
-            <div class="form-group">
-                <label>Pay Type <small style="color:gray;">(Signifi Only)</small></label>
-                <select id="emp-pay-type">
-                    <option value="Salaried">Salaried</option>
-                    <option value="Hourly">Hourly</option>
-                </select>
-            </div>
+            <!-- Pay Type & Leave Tracking (Only for Signifi) -->
+            <div id="signifi-only-fields">
+                <div class="form-group">
+                    <label>Pay Type <small style="color:gray;">(Signifi Only)</small></label>
+                    <select id="emp-pay-type">
+                        <option value="Salaried">Salaried</option>
+                        <option value="Hourly">Hourly</option>
+                    </select>
+                </div>
 
-            <!-- Vacation, Sick, and Paid Lieu Tracking -->
-            <div style="display: flex; gap: 10px;">
-                <div class="form-group" style="width: 50%;">
-                    <label>Vacation Days / Year</label>
-                    <input type="number" id="emp-vacation-total" value="10">
+                <!-- Vacation, Sick, and Paid Lieu Tracking -->
+                <div style="display: flex; gap: 10px;">
+                    <div class="form-group" style="width: 50%;">
+                        <label>Vacation Days / Year</label>
+                        <input type="number" id="emp-vacation-total" value="10">
+                    </div>
+                    <div class="form-group" style="width: 50%;">
+                        <label>Vacations Used</label>
+                        <input type="number" id="emp-vacation-used" value="0">
+                    </div>
                 </div>
-                <div class="form-group" style="width: 50%;">
-                    <label>Vacations Used</label>
-                    <input type="number" id="emp-vacation-used" value="0">
+                <div style="display: flex; gap: 10px;">
+                    <div class="form-group" style="width: 50%;">
+                        <label>Sick Days / Year</label>
+                        <input type="number" id="emp-sick-total" value="5">
+                    </div>
+                    <div class="form-group" style="width: 50%;">
+                        <label>Sick Days Used</label>
+                        <input type="number" id="emp-sick-used" value="0">
+                    </div>
                 </div>
-            </div>
-            <div style="display: flex; gap: 10px;">
-                <div class="form-group" style="width: 50%;">
-                    <label>Sick Days / Year</label>
-                    <input type="number" id="emp-sick-total" value="5">
-                </div>
-                <div class="form-group" style="width: 50%;">
-                    <label>Sick Days Used</label>
-                    <input type="number" id="emp-sick-used" value="0">
-                </div>
-            </div>
-            <div style="display: flex; gap: 10px;">
-                <div class="form-group" style="width: 50%;">
-                    <label>Paid Lieu / Year</label>
-                    <input type="number" id="emp-lieu-total" value="0">
-                </div>
-                <div class="form-group" style="width: 50%;">
-                    <label>Paid Lieu Used</label>
-                    <input type="number" id="emp-lieu-used" value="0">
+                <div style="display: flex; gap: 10px;">
+                    <div class="form-group" style="width: 50%;">
+                        <label>Paid Lieu / Year</label>
+                        <input type="number" id="emp-lieu-total" value="0">
+                    </div>
+                    <div class="form-group" style="width: 50%;">
+                        <label>Paid Lieu Used</label>
+                        <input type="number" id="emp-lieu-used" value="0">
+                    </div>
                 </div>
             </div>
 
@@ -754,8 +756,37 @@
                         }
                     });
 
-                    if (lastPunchDoc && lastPunchDoc.action === 'IN') {
-                        pendingAction = 'OUT';
+                    if (lastPunchDoc) {
+                        // --- 10 MINUTE COOLDOWN LOGIC START ---
+                        const nowMs = Date.now();
+                        const diffMs = nowMs - latestTime;
+                        const tenMinutesMs = 10 * 60 * 1000;
+
+                        // Check if the last punch was less than 10 minutes ago
+                        // (We check > -tenMinutesMs to account for minor clock desyncs between client and Firebase server)
+                        if (diffMs < tenMinutesMs && diffMs > -tenMinutesMs) {
+                            const lastPunchTimeFormatted = new Date(latestTime).toLocaleTimeString('en-US', { hour12: true, hour: 'numeric', minute: '2-digit' });
+                            const actionWord = lastPunchDoc.action === 'IN' ? 'punched IN' : 'punched OUT';
+
+                            // Show rejection message
+                            statusDiv.style.display = 'block';
+                            statusDiv.className = 'status-message error';
+                            statusDiv.innerHTML = `You have already ${actionWord} at <strong>${lastPunchTimeFormatted}</strong>.<br>Please wait 10 minutes before tapping again.`;
+
+                            // Clear error and reset state after 5 seconds
+                            setTimeout(() => {
+                                statusDiv.style.display = 'none';
+                                isProcessingPunch = false; 
+                                manualInput.focus();
+                            }, 5000);
+                            
+                            return; // Abort the current punch process
+                        }
+                        // --- 10 MINUTE COOLDOWN LOGIC END ---
+
+                        if (lastPunchDoc.action === 'IN') {
+                            pendingAction = 'OUT';
+                        }
                     }
                 }
 
@@ -1005,8 +1036,14 @@
         }
 
         function toggleTypeCustom() {
+            const selectVal = document.getElementById('emp-type-select').value;
             document.getElementById('emp-type-custom').style.display = 
-                document.getElementById('emp-type-select').value === 'custom' ? 'block' : 'none';
+                selectVal === 'custom' ? 'block' : 'none';
+            
+            const signifiFields = document.getElementById('signifi-only-fields');
+            if(signifiFields) {
+                signifiFields.style.display = selectVal === 'Signifi' ? 'block' : 'none';
+            }
         }
 
         // === 4. EMPLOYEE MANAGEMENT DIRECTORY ===
@@ -1054,9 +1091,9 @@
                     let displayAgency = (emp.type === 'Agency') ? (emp.agencyName || 'Unnamed Agency') : '-';
                     let displayPay = (emp.type === 'Signifi') ? (emp.payType || 'Salaried') : '-';
                     
-                    let vacRem = (emp.vacationTotal || 0) - (emp.vacationUsed || 0);
-                    let sickRem = (emp.sickTotal || 0) - (emp.sickUsed || 0);
-                    let lieuRem = (emp.lieuTotal || 0) - (emp.lieuUsed || 0);
+                    let displayVac = (emp.type === 'Signifi') ? `${(emp.vacationTotal || 0) - (emp.vacationUsed || 0)} / ${emp.vacationTotal || 0}` : 'N/A';
+                    let displaySick = (emp.type === 'Signifi') ? `${(emp.sickTotal || 0) - (emp.sickUsed || 0)} / ${emp.sickTotal || 0}` : 'N/A';
+                    let displayLieu = (emp.type === 'Signifi') ? `${(emp.lieuTotal || 0) - (emp.lieuUsed || 0)} / ${emp.lieuTotal || 0}` : 'N/A';
 
                     return `
                         <tr>
@@ -1064,9 +1101,9 @@
                             <td>${emp.name}</td>
                             <td>${emp.department} <br><small style="color:gray">${displayAgency}</small></td>
                             <td>${displayPay}</td>
-                            <td>${vacRem} / ${emp.vacationTotal || 0}</td>
-                            <td>${sickRem} / ${emp.sickTotal || 0}</td>
-                            <td>${lieuRem} / ${emp.lieuTotal || 0}</td>
+                            <td>${displayVac}</td>
+                            <td>${displaySick}</td>
+                            <td>${displayLieu}</td>
                             <td style="text-align:center;">
                                 <button class="small-btn btn-print" onclick="printBadge('${emp.id}', '${emp.name}', '${emp.department}')">Print</button>
                                 <button class="small-btn btn-edit" onclick="openEmployeeModal(${safeEmpJson})">Edit</button>
@@ -1174,7 +1211,7 @@
             const originalId = document.getElementById('emp-original-id').value; 
             const requestedId = document.getElementById('emp-id').value.trim(); 
             const name = document.getElementById('emp-name').value.trim();
-            const payType = document.getElementById('emp-pay-type').value;
+            let payType = document.getElementById('emp-pay-type').value;
             
             if (!name) { alert("Please enter the employee's Full Name."); return; }
 
@@ -1206,6 +1243,13 @@
             let sickUsd = parseInt(document.getElementById('emp-sick-used').value) || 0;
             let lieuTot = parseInt(document.getElementById('emp-lieu-total').value) || 0;
             let lieuUsd = parseInt(document.getElementById('emp-lieu-used').value) || 0;
+
+            if (type !== 'Signifi') {
+                vacTotal = 0; vacUsed = 0;
+                sickTot = 0; sickUsd = 0;
+                lieuTot = 0; lieuUsd = 0;
+                payType = 'Hourly'; 
+            }
 
             const badgeId = requestedId ? requestedId : Math.floor(100000 + Math.random() * 900000).toString();
             const isNew = !originalId;
@@ -1651,25 +1695,25 @@
                             let datalistId = `leave_${emp.id}`;
                             let datalistHtml = `<datalist id="${datalistId}">`;
                             
-                            let vUsed = emp.vacationUsed || 0;
-                            let vTotal = emp.vacationTotal || 0;
-                            for(let v = vUsed + 1; v <= vTotal; v++) {
-                                datalistHtml += `<option value="Vacation-${reportYear}-${v}"></option>`;
-                            }
-                            
-                            let sUsed = emp.sickUsed || 0;
-                            let sTotal = emp.sickTotal || 0;
-                            for(let s = sUsed + 1; s <= sTotal; s++) {
-                                datalistHtml += `<option value="Sick-${reportYear}-${s}"></option>`;
-                            }
-
-                            let lUsed = emp.lieuUsed || 0;
-                            let lTotal = emp.lieuTotal || 0;
-                            for(let l = lUsed + 1; l <= lTotal; l++) {
-                                datalistHtml += `<option value="Paid Lieu-${reportYear}-${l}"></option>`;
-                            }
-                            
                             if (isSignifi) {
+                                let vUsed = emp.vacationUsed || 0;
+                                let vTotal = emp.vacationTotal || 0;
+                                for(let v = vUsed + 1; v <= vTotal; v++) {
+                                    datalistHtml += `<option value="Vacation-${reportYear}-${v}"></option>`;
+                                }
+                                
+                                let sUsed = emp.sickUsed || 0;
+                                let sTotal = emp.sickTotal || 0;
+                                for(let s = sUsed + 1; s <= sTotal; s++) {
+                                    datalistHtml += `<option value="Sick-${reportYear}-${s}"></option>`;
+                                }
+
+                                let lUsed = emp.lieuUsed || 0;
+                                let lTotal = emp.lieuTotal || 0;
+                                for(let l = lUsed + 1; l <= lTotal; l++) {
+                                    datalistHtml += `<option value="Paid Lieu-${reportYear}-${l}"></option>`;
+                                }
+                                
                                 datalistHtml += `<option value="Stat Holiday"></option>`;
                                 datalistHtml += `<option value="Off"></option>`;
                             }
