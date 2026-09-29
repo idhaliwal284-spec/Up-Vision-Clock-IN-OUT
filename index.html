@@ -284,8 +284,11 @@
         <!-- Employees Tab -->
         <div id="employees" class="tab-content active">
             <div class="report-controls">
-                <h2 style="margin: 0;">Employee Directory</h2>
-                <button class="action-btn" onclick="openEmployeeModal()">+ Add New Employee</button>
+                <h2 style="margin: 0;">Employee Directory <span style="font-size: 1.2rem; color: #555;">(Total Active: <span id="total-emp-count">0</span>)</span></h2>
+                <div>
+                    <button class="action-btn" id="view-laidoff-btn" style="background-color: #6c757d; margin-right: 10px;" onclick="toggleLaidOffView()">View Laid Off</button>
+                    <button class="action-btn" onclick="openEmployeeModal()">+ Add New Employee</button>
+                </div>
             </div>
             
             <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 15px;">
@@ -308,6 +311,7 @@
             <table class="report-table" style="text-align: left;">
                 <thead>
                     <tr style="background-color: #d9d9d9; font-weight: bold;">
+                        <th>S.NO.</th>
                         <th>Badge ID</th>
                         <th>Name</th>
                         <th>Dept / Agency</th>
@@ -319,7 +323,7 @@
                     </tr>
                 </thead>
                 <tbody id="employee-list-body">
-                    <tr><td colspan="8" style="text-align:center;">Loading...</td></tr>
+                    <tr><td colspan="9" style="text-align:center;">Loading...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -470,6 +474,7 @@
         
         let currentEmpAgencyFilter = 'All';
         let currentEmpDeptFilter = 'All';
+        let viewingLaidOff = false;
 
         let globalHistoryData = []; // Store raw history for grouping
 
@@ -703,7 +708,9 @@
                 // Fetch Employees
                 const empsSnap = await db.collection('employees').get();
                 const allEmpIds = [];
-                empsSnap.forEach(doc => allEmpIds.push(doc.id));
+                empsSnap.forEach(doc => {
+                    if (!doc.data().isLaidOff) allEmpIds.push(doc.id);
+                });
 
                 // Fetch Overrides to prevent overwriting Leave/Vacation
                 const overridesSnap = await db.collection('timesheet_overrides').where('date', '==', dateStr).get();
@@ -840,6 +847,16 @@
                 }
                 
                 pendingEmpData = empDoc.data();
+                if(pendingEmpData.isLaidOff) {
+                    statusDiv.className = 'status-message error';
+                    statusDiv.innerText = 'Badge inactive. Please contact Admin.';
+                    setTimeout(() => {
+                        statusDiv.style.display = 'none';
+                        isProcessingPunch = false; 
+                    }, 3000);
+                    return;
+                }
+                
                 pendingBadgeId = badgeId;
                 
                 const shiftQuery = await db.collection('shifts').where('employeeId', '==', badgeId).get();
@@ -867,7 +884,6 @@
                         const tenMinutesMs = 10 * 60 * 1000;
 
                         // Check if the last punch was less than 10 minutes ago
-                        // (We check > -tenMinutesMs to account for minor clock desyncs between client and Firebase server)
                         if (diffMs < tenMinutesMs && diffMs > -tenMinutesMs) {
                             const lastPunchTimeFormatted = new Date(latestTime).toLocaleTimeString('en-US', { hour12: true, hour: 'numeric', minute: '2-digit' });
                             const actionWord = lastPunchDoc.action === 'IN' ? 'punched IN' : 'punched OUT';
@@ -1151,6 +1167,34 @@
         }
 
         // === 4. EMPLOYEE MANAGEMENT DIRECTORY ===
+        window.toggleLaidOffView = function() {
+            viewingLaidOff = !viewingLaidOff;
+            const btn = document.getElementById('view-laidoff-btn');
+            if (viewingLaidOff) {
+                btn.innerText = "View Active Employees";
+                btn.style.backgroundColor = "#28a745";
+            } else {
+                btn.innerText = "View Laid Off";
+                btn.style.backgroundColor = "#6c757d";
+            }
+            loadEmployees();
+        };
+
+        window.toggleEmployeeLayOff = async function(badgeId, name, currentlyLaidOff) {
+            const actionText = currentlyLaidOff ? "RESTORE" : "LAY OFF";
+            if(confirm(`Are you sure you want to ${actionText} employee "${name}"?`)) {
+                try {
+                    await db.collection('employees').doc(badgeId).update({
+                        isLaidOff: !currentlyLaidOff
+                    });
+                    loadEmployees();
+                } catch(e) {
+                    console.error(e);
+                    alert("Failed to update status: " + e.message);
+                }
+            }
+        };
+
         function setEmployeeAgencyFilter(filterType) {
             currentEmpAgencyFilter = filterType;
             loadEmployees();
@@ -1166,27 +1210,38 @@
             const agencyTabs = document.getElementById('dynamic-emp-agency-tabs');
             const deptTabs = document.getElementById('dynamic-emp-dept-tabs');
             
-            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">Loading...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;">Loading...</td></tr>';
             
             try {
                 const snapshot = await db.collection('employees').orderBy('name').get();
                 tbody.innerHTML = '';
                 
                 if (snapshot.empty) {
-                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">No employees found. Add one above!</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;">No employees found. Add one above!</td></tr>';
+                    document.getElementById('total-emp-count').innerText = "0";
                     return;
                 }
 
                 const agencies = new Set();
                 const depts = new Set();
+                let totalActiveCount = 0;
 
                 snapshot.forEach(doc => {
                     const emp = doc.data();
-                    if (emp.type === 'Agency') {
-                        agencies.add(emp.agencyName ? emp.agencyName.trim() : 'Unnamed Agency');
+                    const isLaidOff = emp.isLaidOff === true;
+                    
+                    if (!isLaidOff) totalActiveCount++;
+
+                    if (viewingLaidOff && isLaidOff) {
+                        if (emp.type === 'Agency') agencies.add(emp.agencyName ? emp.agencyName.trim() : 'Unnamed Agency');
+                        depts.add(emp.department ? emp.department.trim() : 'General');
+                    } else if (!viewingLaidOff && !isLaidOff) {
+                        if (emp.type === 'Agency') agencies.add(emp.agencyName ? emp.agencyName.trim() : 'Unnamed Agency');
+                        depts.add(emp.department ? emp.department.trim() : 'General');
                     }
-                    depts.add(emp.department ? emp.department.trim() : 'General');
                 });
+
+                document.getElementById('total-emp-count').innerText = totalActiveCount;
 
                 // Render agency tabs
                 let agencyHtml = `<button class="filter-btn ${currentEmpAgencyFilter === 'All' ? 'active' : ''}" onclick="setEmployeeAgencyFilter('All')">All</button>
@@ -1206,7 +1261,7 @@
                 deptTabs.innerHTML = deptHtml;
 
                 let filteredCount = 0;
-                const renderEmployeeRow = (emp) => {
+                const renderEmployeeRow = (emp, sNo) => {
                     const safeEmpJson = JSON.stringify(emp).replace(/"/g, '&quot;');
                     let displayAgency = (emp.type === 'Agency') ? (emp.agencyName || 'Unnamed Agency') : '-';
                     let displayPay = (emp.type === 'Signifi') ? (emp.payType || 'Salaried') : '-';
@@ -1215,8 +1270,13 @@
                     let displaySick = (emp.type === 'Signifi') ? `${(emp.sickTotal || 0) - (emp.sickUsed || 0)} / ${emp.sickTotal || 0}` : 'N/A';
                     let displayLieu = (emp.type === 'Signifi') ? `${(emp.lieuTotal || 0) - (emp.lieuUsed || 0)} / ${emp.lieuTotal || 0}` : 'N/A';
 
+                    let layOffBtn = emp.isLaidOff 
+                        ? `<button class="small-btn" style="background-color: #20c997;" onclick="toggleEmployeeLayOff('${emp.id}', '${emp.name.replace(/'/g, "\\'")}', true)">Restore</button>`
+                        : `<button class="small-btn" style="background-color: #fd7e14;" onclick="toggleEmployeeLayOff('${emp.id}', '${emp.name.replace(/'/g, "\\'")}', false)">Lay Off</button>`;
+
                     return `
                         <tr>
+                            <td><strong>${sNo}</strong></td>
                             <td><strong>${emp.id}</strong></td>
                             <td>${emp.name}</td>
                             <td>${emp.department} <br><small style="color:gray">${displayAgency}</small></td>
@@ -1227,6 +1287,7 @@
                             <td style="text-align:center;">
                                 <button class="small-btn btn-print" onclick="printBadge('${emp.id}', '${emp.name}', '${emp.department}')">Print</button>
                                 <button class="small-btn btn-edit" onclick="openEmployeeModal(${safeEmpJson})">Edit</button>
+                                ${layOffBtn}
                                 <button class="small-btn btn-delete" onclick="deleteEmployee('${emp.id}', '${emp.name}')">Delete</button>
                             </td>
                         </tr>
@@ -1237,6 +1298,10 @@
                     const emp = doc.data();
                     const empAgency = emp.agencyName ? emp.agencyName.trim() : 'Unnamed Agency';
                     const empDept = emp.department ? emp.department.trim() : 'General';
+                    const isLaidOff = emp.isLaidOff === true;
+
+                    if (viewingLaidOff && !isLaidOff) return;
+                    if (!viewingLaidOff && isLaidOff) return;
                     
                     let showAgency = false;
                     if (currentEmpAgencyFilter === 'All') showAgency = true;
@@ -1248,18 +1313,18 @@
                     else if (empDept === currentEmpDeptFilter) showDept = true;
 
                     if (showAgency && showDept) {
-                        tbody.innerHTML += renderEmployeeRow(emp);
                         filteredCount++;
+                        tbody.innerHTML += renderEmployeeRow(emp, filteredCount);
                     }
                 });
 
                 if (filteredCount === 0) {
-                    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;">No employees found for this category.</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;">No employees found for this category.</td></tr>`;
                 }
 
             } catch(e) {
                 console.error(e);
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:red;">Database not connected. Check Firebase config.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:red;">Database not connected. Check Firebase config.</td></tr>';
             }
         }
 
@@ -1411,7 +1476,8 @@
                     sickUsed: sickUsd,
                     lieuTotal: lieuTot,
                     lieuUsed: lieuUsd,
-                    createdAt: empCreatedAt
+                    createdAt: empCreatedAt,
+                    isLaidOff: false // Ensure new/edited employees are active by default
                 }, { merge: true });
 
                 closeModal('employee-modal');
@@ -1782,6 +1848,8 @@
                 
                 empsSnapshot.forEach(doc => { 
                     const emp = doc.data();
+                    if (emp.isLaidOff) return; // DO NOT PROCESS LAID OFF EMPLOYEES
+
                     employees[doc.id] = emp; 
                     if (emp.type === 'Agency') {
                         reportAgencies.add(emp.agencyName ? emp.agencyName.trim() : 'Unnamed Agency');
@@ -1876,7 +1944,7 @@
                         let tableTitle = `${isSignifi ? 'Signifi' : agency} ${dept} - Timesheet`;
                         let firstColHeader = `${dept} - timesheet at Tech Avn.`;
                         
-                        let titleColspan = rangeDates.length + (isSignifi ? 6 : 5);
+                        let titleColspan = rangeDates.length + (isSignifi ? 7 : 6);
 
                         html += `<table class="report-table" style="table-layout: fixed; width: 100%; border: 2px solid #000; border-collapse: collapse; font-family: Calibri, sans-serif; font-size: 11pt;">`;
                         
@@ -1884,6 +1952,7 @@
                         excelRow++;
                         
                         html += `<tr style="background-color: #d9d9d9;">`;
+                        html += `<td rowspan="2" style="width:4%; border: 1px solid #000; font-weight: bold; text-align: center; vertical-align: middle;">S.NO.</td>`;
                         html += `<td rowspan="2" colspan="2" style="width:16%; border: 1px solid #000; font-weight: bold; text-align: center; vertical-align: middle;">Names</td>`;
                         
                         for (let i = 0; i < rangeDates.length; i++) { 
@@ -2056,7 +2125,7 @@
                                 let breakId = `break_${gIdx}_${eIdx}_${i}`;
                                 let totalId = `total_${gIdx}_${eIdx}_${i}`;
 
-                                let colLtr = getColLtr(2 + i);
+                                let colLtr = getColLtr(3 + i);
                                 let inCell = `${colLtr}${empStartRow}`;
                                 let outCell = `${colLtr}${empStartRow + 1}`;
                                 let breakCell = `${colLtr}${empStartRow + 2}`;
@@ -2074,19 +2143,20 @@
 
                             let defaultNote = notesData[emp.id] ? notesData[emp.id] : `Regular ${dept} Projects`;
 
-                            let firstTotCell = `${getColLtr(2)}${empStartRow + 3}`;
-                            let lastTotCell = `${getColLtr(2 + rangeDates.length - 1)}${empStartRow + 3}`;
+                            let firstTotCell = `${getColLtr(3)}${empStartRow + 3}`;
+                            let lastTotCell = `${getColLtr(3 + rangeDates.length - 1)}${empStartRow + 3}`;
                             
-                            let firstExtraCell = `${getColLtr(2)}${empStartRow + 2}`;
-                            let lastExtraCell = `${getColLtr(2 + rangeDates.length - 1)}${empStartRow + 2}`;
+                            let firstExtraCell = `${getColLtr(3)}${empStartRow + 2}`;
+                            let lastExtraCell = `${getColLtr(3 + rangeDates.length - 1)}${empStartRow + 2}`;
                             
                             let empTotalFormula = `=SUM(${firstTotCell}:${lastTotCell})`;
                             
-                            let totColLtr = getColLtr(2 + rangeDates.length);
+                            let totColLtr = getColLtr(3 + rangeDates.length);
                             deptTotalRefs.push(`${totColLtr}${empStartRow}`);
 
                             html += `<tr>`;
-                            html += `<td rowspan="4" style="width:12%; font-weight:bold; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;">${emp.name}${datalistHtml}</td>`;
+                            html += `<td rowspan="4" style="width:3%; font-weight:bold; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;">${eIdx}</td>`;
+                            html += `<td rowspan="4" style="width:13%; font-weight:bold; border: 1px solid #000; text-align: center; vertical-align: middle; background-color: #ffffff;">${emp.name}${datalistHtml}</td>`;
                             html += `<td style="width:4%; border: 1px solid #000; background-color: #ffffff; text-align: center;">In</td>${rowIn}`;
                             
                             if (isSignifi) {
@@ -2112,7 +2182,7 @@
                             excelRow += 4;
                         });
                         
-                        let totalRowLeftSpan = 2 + rangeDates.length; 
+                        let totalRowLeftSpan = 3 + rangeDates.length; 
                         
                         html += `<tr class="totals-row" style="background-color: #a6a6a6;">`;
                         
