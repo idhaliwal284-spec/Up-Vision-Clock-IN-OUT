@@ -617,11 +617,75 @@
             statusCircle.title = "Database Error: " + err.message;
         });
 
+        // === AUTO PUNCH OUT MISSING SHIFTS AT 11:59 PM ===
+        async function runDailyAutoPunchOut(currentDate) {
+            try {
+                const startOfDay = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
+                const endOfDay = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), 23, 59, 59, 999);
+                
+                const shiftsSnap = await db.collection('shifts')
+                    .where('timestamp', '>=', startOfDay)
+                    .where('timestamp', '<=', endOfDay)
+                    .orderBy('timestamp', 'asc')
+                    .get();
+
+                const employeeShifts = {};
+                
+                shiftsSnap.forEach(doc => {
+                    const data = doc.data();
+                    if (!employeeShifts[data.employeeId]) {
+                        employeeShifts[data.employeeId] = [];
+                    }
+                    employeeShifts[data.employeeId].push(data);
+                });
+
+                const batch = db.batch();
+                let hasAutoPunches = false;
+
+                for (const empId in employeeShifts) {
+                    const shifts = employeeShifts[empId];
+                    const lastPunch = shifts[shifts.length - 1]; // Latest punch for the day
+
+                    if (lastPunch && lastPunch.action === 'IN') {
+                        // They never punched out today. Assign a 4:55 PM OUT punch.
+                        const autoOutTime = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), 16, 55, 0, 0); 
+                        
+                        // Only process if the 4:55 PM auto-out is after their IN punch
+                        if (autoOutTime > lastPunch.timestamp.toDate()) {
+                            const newShiftRef = db.collection('shifts').doc();
+                            batch.set(newShiftRef, {
+                                employeeId: empId,
+                                name: lastPunch.name,
+                                action: 'OUT',
+                                timestamp: firebase.firestore.Timestamp.fromDate(autoOutTime),
+                                type: lastPunch.type || 'Unknown',
+                                department: lastPunch.department || 'Unknown',
+                                isAuto: true
+                            });
+                            hasAutoPunches = true;
+                        }
+                    }
+                }
+
+                if (hasAutoPunches) {
+                    await batch.commit();
+                    console.log("Auto-punchout completed for missing OUTs at 4:55 PM.");
+                }
+            } catch (error) {
+                console.error("Auto punch out failed: ", error);
+            }
+        }
+
         // === 2. KIOSK CLOCK & INPUT LOGIC ===
         setInterval(() => {
             const now = new Date();
             document.getElementById('clock').innerText = now.toLocaleTimeString('en-US', { hour12: false });
             document.getElementById('date-display').innerText = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+            
+            // Trigger auto punch out at exactly 11:59:00 PM
+            if (now.getHours() === 23 && now.getMinutes() === 59 && now.getSeconds() === 0) {
+                runDailyAutoPunchOut(now);
+            }
         }, 1000);
 
         const manualInput = document.getElementById('manual-input');
@@ -690,37 +754,8 @@
                         }
                     });
 
-                    if (lastPunchDoc) {
-                        // --- 10 MINUTE COOLDOWN LOGIC START ---
-                        const nowMs = Date.now();
-                        const diffMs = nowMs - latestTime;
-                        const tenMinutesMs = 10 * 60 * 1000;
-
-                        // Check if the last punch was less than 10 minutes ago
-                        // (We check > -tenMinutesMs to account for minor clock desyncs between client and Firebase server)
-                        if (diffMs < tenMinutesMs && diffMs > -tenMinutesMs) {
-                            const lastPunchTimeFormatted = new Date(latestTime).toLocaleTimeString('en-US', { hour12: true, hour: 'numeric', minute: '2-digit' });
-                            const actionWord = lastPunchDoc.action === 'IN' ? 'punched IN' : 'punched OUT';
-
-                            // Show rejection message
-                            statusDiv.style.display = 'block';
-                            statusDiv.className = 'status-message error';
-                            statusDiv.innerHTML = `You have already ${actionWord} at <strong>${lastPunchTimeFormatted}</strong>.<br>Please wait 10 minutes before tapping again.`;
-
-                            // Clear error and reset state after 5 seconds
-                            setTimeout(() => {
-                                statusDiv.style.display = 'none';
-                                isProcessingPunch = false; 
-                                manualInput.focus();
-                            }, 5000);
-                            
-                            return; // Abort the current punch process
-                        }
-                        // --- 10 MINUTE COOLDOWN LOGIC END ---
-
-                        if (lastPunchDoc.action === 'IN') {
-                            pendingAction = 'OUT';
-                        }
+                    if (lastPunchDoc && lastPunchDoc.action === 'IN') {
+                        pendingAction = 'OUT';
                     }
                 }
 
