@@ -326,8 +326,27 @@
         <!-- History Tab -->
         <div id="history" class="tab-content">
             <h2>Raw Punch History</h2>
-            <table class="report-table" style="text-align: left;">
-                <thead><tr style="background-color: #d9d9d9; font-weight: bold;"><th>Date & Time</th><th>Name</th><th>Action</th><th>Type</th></tr></thead>
+            <table class="report-table" style="text-align: left;" id="historyTable">
+                <thead>
+                    <tr style="background-color: #d9d9d9; font-weight: bold;">
+                        <th>Date & Time</th>
+                        <th>Name</th>
+                        <th>Action</th>
+                        <th>Type</th>
+                    </tr>
+                    <tr style="background-color: #f4f7f6;">
+                        <th style="padding: 4px;"><input type="text" id="filter-history-date" onkeyup="filterHistoryTable()" placeholder="Filter Date..." style="width:100%; padding:5px; box-sizing:border-box; font-weight:normal;"></th>
+                        <th style="padding: 4px;"><input type="text" id="filter-history-name" onkeyup="filterHistoryTable()" placeholder="Filter Name..." style="width:100%; padding:5px; box-sizing:border-box; font-weight:normal;"></th>
+                        <th style="padding: 4px;">
+                            <select id="filter-history-action" onchange="filterHistoryTable()" style="width:100%; padding:5px; box-sizing:border-box; font-weight:normal;">
+                                <option value="">All</option>
+                                <option value="IN">IN</option>
+                                <option value="OUT">OUT</option>
+                            </select>
+                        </th>
+                        <th style="padding: 4px;"><input type="text" id="filter-history-type" onkeyup="filterHistoryTable()" placeholder="Filter Type..." style="width:100%; padding:5px; box-sizing:border-box; font-weight:normal;"></th>
+                    </tr>
+                </thead>
                 <tbody id="history-body"></tbody>
             </table>
         </div>
@@ -1378,6 +1397,35 @@
                 });
             } catch(e) {
                 tbody.innerHTML = '<tr><td colspan="4">Database not connected yet.</td></tr>';
+            }
+        }
+
+        // === HISTORY FILTERING ===
+        function filterHistoryTable() {
+            const dateFilter = document.getElementById("filter-history-date").value.toLowerCase();
+            const nameFilter = document.getElementById("filter-history-name").value.toLowerCase();
+            const actionFilter = document.getElementById("filter-history-action").value.toLowerCase();
+            const typeFilter = document.getElementById("filter-history-type").value.toLowerCase();
+
+            const tbody = document.getElementById("history-body");
+            const trs = tbody.getElementsByTagName("tr");
+
+            for (let i = 0; i < trs.length; i++) {
+                if (trs[i].getElementsByTagName("td").length < 4) continue; // Skip loading/error messages
+
+                const tdDate = trs[i].getElementsByTagName("td")[0].textContent.toLowerCase();
+                const tdName = trs[i].getElementsByTagName("td")[1].textContent.toLowerCase();
+                const tdAction = trs[i].getElementsByTagName("td")[2].textContent.toLowerCase();
+                const tdType = trs[i].getElementsByTagName("td")[3].textContent.toLowerCase();
+
+                if (tdDate.includes(dateFilter) && 
+                    tdName.includes(nameFilter) && 
+                    tdAction.includes(actionFilter) && 
+                    tdType.includes(typeFilter)) {
+                    trs[i].style.display = "";
+                } else {
+                    trs[i].style.display = "none";
+                }
             }
         }
 
