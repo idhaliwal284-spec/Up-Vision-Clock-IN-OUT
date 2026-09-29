@@ -474,14 +474,27 @@
         let globalHistoryData = []; // Store raw history for grouping
 
         // === LIVE TIMESHEET RECALCULATION ENGINE (UI) ===
-        window.recalcTime = function(gIdx, eIdx, colIdx, numCols, empType, payType) {
+        window.recalcTime = function(gIdx, eIdx, colIdx, numCols, empType, payType, changedField = '') {
             const isSignifi = (empType === 'Signifi');
             const isHourly = (payType === 'Hourly');
             
-            const inVal = document.getElementById(`in_${gIdx}_${eIdx}_${colIdx}`).value.trim();
-            const outVal = document.getElementById(`out_${gIdx}_${eIdx}_${colIdx}`).value.trim();
-            const thirdVal = document.getElementById(`break_${gIdx}_${eIdx}_${colIdx}`).value.trim();
-            const totalInput = document.getElementById(`total_${gIdx}_${eIdx}_${colIdx}`);
+            let inInput = document.getElementById(`in_${gIdx}_${eIdx}_${colIdx}`);
+            let outInput = document.getElementById(`out_${gIdx}_${eIdx}_${colIdx}`);
+            let breakInput = document.getElementById(`break_${gIdx}_${eIdx}_${colIdx}`);
+            let totalInput = document.getElementById(`total_${gIdx}_${eIdx}_${colIdx}`);
+
+            if (changedField === 'total') {
+                let cTotal = totalInput.value.trim().toLowerCase();
+                if (cTotal === '0' || cTotal === '0:00') {
+                    inInput.value = '0';
+                    outInput.value = '0';
+                    breakInput.value = '0';
+                }
+            }
+
+            const inVal = inInput.value.trim();
+            const outVal = outInput.value.trim();
+            const thirdVal = breakInput.value.trim();
 
             const parseTime = (str) => {
                 if(!str || !str.includes(':')) return 0;
@@ -503,32 +516,30 @@
                 let inM = parseTime(inVal);
                 let outM = parseTime(outVal);
                 
-                if (outM >= inM) {
-                    let diff = outM - inM;
-                    
-                    if (isSignifi) {
-                        if (isHourly) {
-                            newTotal = formatTime(diff);
-                            newThird = ""; 
-                        } else {
-                            if (diff >= 480) {
-                                newTotal = "Full Day";
-                                let ext = diff - 480;
-                                if (ext > 0) newThird = formatTime(ext);
-                                else newThird = "";
-                            } else {
-                                newTotal = formatTime(diff);
-                                newThird = "";
-                            }
-                        }
+                let diff = Math.max(0, outM - inM);
+                
+                if (isSignifi) {
+                    if (isHourly) {
+                        newTotal = formatTime(diff);
+                        newThird = ""; 
                     } else {
-                        // Agency Break logic: deduct 45 min if worked > 4 hours (240 mins)
-                        if (diff > 240 && thirdVal === "") {
-                            newThird = "0:45";
+                        if (diff >= 480) {
+                            newTotal = "Full Day";
+                            let ext = diff - 480;
+                            if (ext > 0) newThird = formatTime(ext);
+                            else newThird = "";
+                        } else {
+                            newTotal = formatTime(diff);
+                            newThird = "";
                         }
-                        let bM = parseTime(newThird);
-                        newTotal = formatTime(Math.max(0, diff - bM));
                     }
+                } else {
+                    // Agency Break logic: deduct 45 min if worked > 4 hours (240 mins)
+                    if (diff > 240 && thirdVal === "") {
+                        newThird = "0:45";
+                    }
+                    let bM = parseTime(newThird);
+                    newTotal = formatTime(Math.max(0, diff - bM));
                 }
             }
 
@@ -539,7 +550,9 @@
                 if (newTotal !== "") {
                     totalInput.value = newTotal;
                 } else if (!hasLeaveText) {
-                    totalInput.value = "";
+                    if (currentTotal !== '0' && currentTotal !== '0:00') {
+                        totalInput.value = "";
+                    }
                 }
             }
             
@@ -550,7 +563,7 @@
             }
             
             if (newThird !== thirdVal) {
-                document.getElementById(`break_${gIdx}_${eIdx}_${colIdx}`).value = newThird;
+                breakInput.value = newThird;
             }
 
             // Update Aggregates
@@ -685,6 +698,21 @@
                 const startOfDay = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
                 const endOfDay = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), 23, 59, 59, 999);
                 
+                const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+                
+                // Fetch Employees
+                const empsSnap = await db.collection('employees').get();
+                const allEmpIds = [];
+                empsSnap.forEach(doc => allEmpIds.push(doc.id));
+
+                // Fetch Overrides to prevent overwriting Leave/Vacation
+                const overridesSnap = await db.collection('timesheet_overrides').where('date', '==', dateStr).get();
+                const existingOverrides = {};
+                overridesSnap.forEach(doc => {
+                    existingOverrides[doc.data().empId] = true;
+                });
+
+                // Fetch Shifts
                 const shiftsSnap = await db.collection('shifts')
                     .where('timestamp', '>=', startOfDay)
                     .where('timestamp', '<=', endOfDay)
@@ -704,34 +732,50 @@
                 const batch = db.batch();
                 let hasAutoPunches = false;
 
-                for (const empId in employeeShifts) {
+                for (const empId of allEmpIds) {
                     const shifts = employeeShifts[empId];
-                    const lastPunch = shifts[shifts.length - 1]; // Latest punch for the day
 
-                    if (lastPunch && lastPunch.action === 'IN') {
-                        // They never punched out today. Assign a 4:55 PM OUT punch.
-                        const autoOutTime = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), 16, 55, 0, 0); 
-                        
-                        // Only process if the 4:55 PM auto-out is after their IN punch
-                        if (autoOutTime > lastPunch.timestamp.toDate()) {
-                            const newShiftRef = db.collection('shifts').doc();
-                            batch.set(newShiftRef, {
-                                employeeId: empId,
-                                name: lastPunch.name,
-                                action: 'OUT',
-                                timestamp: firebase.firestore.Timestamp.fromDate(autoOutTime),
-                                type: lastPunch.type || 'Unknown',
-                                department: lastPunch.department || 'Unknown',
-                                isAuto: true
-                            });
+                    if (!shifts || shifts.length === 0) {
+                        // NO SHIFTS TODAY - Auto mark as 0 (unless they already have an override like Vacation/Sick)
+                        if (!existingOverrides[empId]) {
+                            const docId = empId + "_" + dateStr;
+                            const overrideRef = db.collection('timesheet_overrides').doc(docId);
+                            batch.set(overrideRef, {
+                                empId: empId,
+                                date: dateStr,
+                                in: '0',
+                                out: '0',
+                                break: '0',
+                                total: '0'
+                            }, { merge: true });
                             hasAutoPunches = true;
+                        }
+                    } else {
+                        // HAS SHIFTS - Check if forgot to punch out
+                        const lastPunch = shifts[shifts.length - 1]; 
+                        if (lastPunch && lastPunch.action === 'IN') {
+                            const autoOutTime = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), 16, 55, 0, 0); 
+                            
+                            if (autoOutTime > lastPunch.timestamp.toDate()) {
+                                const newShiftRef = db.collection('shifts').doc();
+                                batch.set(newShiftRef, {
+                                    employeeId: empId,
+                                    name: lastPunch.name,
+                                    action: 'OUT',
+                                    timestamp: firebase.firestore.Timestamp.fromDate(autoOutTime),
+                                    type: lastPunch.type || 'Unknown',
+                                    department: lastPunch.department || 'Unknown',
+                                    isAuto: true
+                                });
+                                hasAutoPunches = true;
+                            }
                         }
                     }
                 }
 
                 if (hasAutoPunches) {
                     await batch.commit();
-                    console.log("Auto-punchout completed for missing OUTs at 4:55 PM.");
+                    console.log("Auto-punchout and Missing-Day zeroing completed for 11:59 PM.");
                 }
             } catch (error) {
                 console.error("Auto punch out failed: ", error);
@@ -2022,10 +2066,10 @@
 
                                 let tTotalColor = (tTotal.toLowerCase() === 'off') ? 'red' : 'inherit';
 
-                                rowIn += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${inId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="in" value="${tIn}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}', '${payType}')"></td>`;
-                                rowOut += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${outId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="out" value="${tOut}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}', '${payType}')"></td>`;
-                                rowBreak += `<td class="row-break" style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${breakId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="break" value="${tBreak}" class="time-input" style="color: ${isSignifi ? '#28a745' : 'red'}; font-weight: ${isSignifi ? 'bold' : 'normal'};" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}', '${payType}')" ${isHourly ? 'readonly' : ''}></td>`;
-                                rowTotal += `<td style="border: 1px solid #000; padding: 0; ${bgTotalRow}"><input type="text" list="${datalistId}" id="${totalId}" data-empid="${emp.id}" data-emptype="${emp.type}" data-date="${dateStr}" data-field="total" data-original="${tTotal}" data-formula="${excelFormula}" value="${tTotal}" class="time-input total-input" style="font-weight:bold; border:none; text-align:center; width:100%; background:transparent; color:${tTotalColor};" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}', '${payType}')"></td>`;
+                                rowIn += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${inId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="in" value="${tIn}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}', '${payType}', 'in')"></td>`;
+                                rowOut += `<td style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${outId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="out" value="${tOut}" class="time-input" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}', '${payType}', 'out')"></td>`;
+                                rowBreak += `<td class="row-break" style="border: 1px solid #000; padding: 0; text-align: center; ${bg}"><input type="text" id="${breakId}" data-empid="${emp.id}" data-date="${dateStr}" data-field="break" value="${tBreak}" class="time-input" style="color: ${isSignifi ? '#28a745' : 'red'}; font-weight: ${isSignifi ? 'bold' : 'normal'};" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}', '${payType}', 'break')" ${isHourly ? 'readonly' : ''}></td>`;
+                                rowTotal += `<td style="border: 1px solid #000; padding: 0; ${bgTotalRow}"><input type="text" list="${datalistId}" id="${totalId}" data-empid="${emp.id}" data-emptype="${emp.type}" data-date="${dateStr}" data-field="total" data-original="${tTotal}" data-formula="${excelFormula}" value="${tTotal}" class="time-input total-input" style="font-weight:bold; border:none; text-align:center; width:100%; background:transparent; color:${tTotalColor};" onchange="recalcTime(${gIdx}, ${eIdx}, ${i}, ${rangeDates.length}, '${emp.type}', '${payType}', 'total')"></td>`;
                             }
 
                             let defaultNote = notesData[emp.id] ? notesData[emp.id] : `Regular ${dept} Projects`;
