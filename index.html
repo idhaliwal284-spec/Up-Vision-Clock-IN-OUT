@@ -325,7 +325,20 @@
 
         <!-- History Tab -->
         <div id="history" class="tab-content">
-            <h2>Raw Punch History</h2>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h2 style="margin: 0;">Raw Punch History</h2>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <label style="font-weight: bold; font-size: 1.1rem;">Group By:</label>
+                    <select id="history-group-select" onchange="renderHistoryTable()" style="padding: 8px 12px; border-radius: 4px; border: 1px solid #ccc; font-size: 1rem;">
+                        <option value="none">None (Chronological)</option>
+                        <option value="day">Day</option>
+                        <option value="week">Week</option>
+                        <option value="month">Month</option>
+                        <option value="name">Employee Name</option>
+                    </select>
+                </div>
+            </div>
+
             <table class="report-table" style="text-align: left;" id="historyTable">
                 <thead>
                     <tr style="background-color: #d9d9d9; font-weight: bold;">
@@ -446,6 +459,8 @@
         
         let currentEmpAgencyFilter = 'All';
         let currentEmpDeptFilter = 'All';
+
+        let globalHistoryData = []; // Store raw history for grouping
 
         // === LIVE TIMESHEET RECALCULATION ENGINE (UI) ===
         window.recalcTime = function(gIdx, eIdx, colIdx, numCols, empType, payType) {
@@ -1376,57 +1391,117 @@
         }
 
         // === 5. HISTORY VIEWER ===
+        function getWeekStart(dateObj) {
+            if (!dateObj) return 'N/A';
+            const d = new Date(dateObj);
+            const day = d.getDay();
+            const diff = d.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
+            d.setDate(diff);
+            return "Week of " + d.toLocaleDateString();
+        }
+
         async function loadHistory() {
             const tbody = document.getElementById('history-body');
-            tbody.innerHTML = '<tr><td colspan="4">Loading...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">Loading all history...</td></tr>';
             
             try {
-                const q = db.collection('shifts').orderBy('timestamp', 'desc').limit(50);
+                // Fetch all records, removing the .limit(50)
+                const q = db.collection('shifts').orderBy('timestamp', 'desc');
                 const snapshot = await q.get();
                 
-                tbody.innerHTML = '';
+                globalHistoryData = [];
                 snapshot.forEach(doc => {
                     const data = doc.data();
-                    const time = data.timestamp ? data.timestamp.toDate().toLocaleString() : 'N/A';
-                    tbody.innerHTML += `<tr>
-                        <td>${time}</td>
-                        <td>${data.name}</td>
-                        <td><b style="color:${data.action==='IN'?'green':'blue'}">${data.action}</b></td>
-                        <td>${data.type}</td>
-                    </tr>`;
+                    data.id = doc.id;
+                    data.jsDate = data.timestamp ? data.timestamp.toDate() : null;
+                    data.timeStr = data.jsDate ? data.jsDate.toLocaleString() : 'N/A';
+                    globalHistoryData.push(data);
                 });
+                
+                renderHistoryTable();
             } catch(e) {
                 tbody.innerHTML = '<tr><td colspan="4">Database not connected yet.</td></tr>';
             }
         }
 
-        // === HISTORY FILTERING ===
-        function filterHistoryTable() {
+        // === HISTORY FILTERING & GROUPING ===
+        function renderHistoryTable() {
             const dateFilter = document.getElementById("filter-history-date").value.toLowerCase();
             const nameFilter = document.getElementById("filter-history-name").value.toLowerCase();
             const actionFilter = document.getElementById("filter-history-action").value.toLowerCase();
             const typeFilter = document.getElementById("filter-history-type").value.toLowerCase();
+            const groupBy = document.getElementById("history-group-select") ? document.getElementById("history-group-select").value : 'none';
 
             const tbody = document.getElementById("history-body");
-            const trs = tbody.getElementsByTagName("tr");
+            let html = '';
 
-            for (let i = 0; i < trs.length; i++) {
-                if (trs[i].getElementsByTagName("td").length < 4) continue; // Skip loading/error messages
+            // 1. Filter Data First
+            let filteredData = globalHistoryData.filter(d => {
+                const fDate = (d.timeStr || '').toLowerCase();
+                const fName = (d.name || '').toLowerCase();
+                const fAction = (d.action || '').toLowerCase();
+                const fType = (d.type || '').toLowerCase();
 
-                const tdDate = trs[i].getElementsByTagName("td")[0].textContent.toLowerCase();
-                const tdName = trs[i].getElementsByTagName("td")[1].textContent.toLowerCase();
-                const tdAction = trs[i].getElementsByTagName("td")[2].textContent.toLowerCase();
-                const tdType = trs[i].getElementsByTagName("td")[3].textContent.toLowerCase();
+                return fDate.includes(dateFilter) && 
+                       fName.includes(nameFilter) && 
+                       fAction.includes(actionFilter) && 
+                       fType.includes(typeFilter);
+            });
 
-                if (tdDate.includes(dateFilter) && 
-                    tdName.includes(nameFilter) && 
-                    tdAction.includes(actionFilter) && 
-                    tdType.includes(typeFilter)) {
-                    trs[i].style.display = "";
-                } else {
-                    trs[i].style.display = "none";
+            if (filteredData.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">No records found.</td></tr>';
+                return;
+            }
+
+            // 2. Render Based on Grouping
+            if (groupBy === 'none') {
+                filteredData.forEach(data => {
+                    html += `<tr>
+                        <td>${data.timeStr}</td>
+                        <td>${data.name}</td>
+                        <td><b style="color:${data.action==='IN'?'green':'blue'}">${data.action}</b></td>
+                        <td>${data.type}</td>
+                    </tr>`;
+                });
+            } else {
+                const groups = {};
+                filteredData.forEach(data => {
+                    let key = 'Unknown';
+                    if (groupBy === 'day') {
+                        key = data.jsDate ? data.jsDate.toLocaleDateString() : 'N/A';
+                    } else if (groupBy === 'week') {
+                        key = getWeekStart(data.jsDate);
+                    } else if (groupBy === 'month') {
+                        key = data.jsDate ? data.jsDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'N/A';
+                    } else if (groupBy === 'name') {
+                        key = data.name || 'Unknown';
+                    }
+                    
+                    if (!groups[key]) groups[key] = [];
+                    groups[key].push(data);
+                });
+
+                for (const [groupName, items] of Object.entries(groups)) {
+                    html += `<tr style="background-color: #6c757d; color: white; font-weight: bold;">
+                        <td colspan="4" style="padding: 10px; font-size: 1.1rem; text-align: left;">${groupName.toUpperCase()} <span style="font-weight:normal; font-size: 0.9rem;">(${items.length} records)</span></td>
+                    </tr>`;
+                    items.forEach(data => {
+                        html += `<tr>
+                            <td>${data.timeStr}</td>
+                            <td>${data.name}</td>
+                            <td><b style="color:${data.action==='IN'?'green':'blue'}">${data.action}</b></td>
+                            <td>${data.type}</td>
+                        </tr>`;
+                    });
                 }
             }
+
+            tbody.innerHTML = html;
+        }
+
+        // Bridge function for the HTML onkeyup/onchange events
+        function filterHistoryTable() {
+            renderHistoryTable();
         }
 
         // === 6. CUSTOM RANGE TIMESHEET REPORT ===
