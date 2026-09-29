@@ -441,6 +441,31 @@
 
         <!-- Signifi Report Tab -->
         <div id="signifi-report" class="tab-content">
+            <!-- Filter & Sort & View Controls -->
+            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 15px;">
+                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                    <strong style="font-size:1.1rem; color:#333; min-width: 110px;">Departments:</strong>
+                    <div class="filter-tabs" id="dynamic-signifi-dept-tabs" style="margin-bottom:0;">
+                        <button class="filter-btn active" onclick="toggleSignifiDeptFilter('All')">All</button>
+                    </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:10px;">
+                    <strong style="font-size:1.1rem; color:#333; min-width: 110px;">Sort By:</strong>
+                    <select id="signifi-report-sort" onchange="generateSignifiSummary()" style="padding: 8px 12px; border-radius: 4px; border: 1px solid #ccc; font-size: 1rem; cursor: pointer;">
+                        <option value="name_asc">Alphabetical (A-Z)</option>
+                        <option value="name_desc">Alphabetical (Z-A)</option>
+                        <option value="newest">Latest Added First</option>
+                        <option value="oldest">Oldest Added First</option>
+                    </select>
+                    
+                    <strong style="font-size:1.1rem; color:#333; min-width: 110px; margin-left: 20px;">View Mode:</strong>
+                    <select id="signifi-report-view-mode" onchange="generateSignifiSummary()" style="padding: 8px 12px; border-radius: 4px; border: 1px solid #ccc; font-size: 1rem; cursor: pointer;">
+                        <option value="bottom">Totals at Bottom Only</option>
+                        <option value="weekly">Full Excel (Weekly Totals)</option>
+                    </select>
+                </div>
+            </div>
+
             <div class="report-controls" style="background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #ddd; flex-direction: column; align-items: stretch; gap: 15px;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div style="display: flex; align-items: center; gap: 10px;">
@@ -502,6 +527,7 @@
         // Global filter arrays
         let currentReportFilter = 'All'; 
         let currentDeptFilters = ['All']; 
+        let currentSignifiDeptFilters = ['All']; // New filter for Signifi Tab
         let availableDepartments = [];
         
         let currentEmpAgencyFilter = 'All';
@@ -2342,6 +2368,36 @@
             link.click();
         }
 
+        // --- NEW: SIGNIFI SUMMARY REPORT ---
+        function toggleSignifiDeptFilter(dept) {
+            if (dept === 'All') {
+                currentSignifiDeptFilters = ['All'];
+            } else {
+                currentSignifiDeptFilters = currentSignifiDeptFilters.filter(d => d !== 'All');
+                if (currentSignifiDeptFilters.includes(dept)) {
+                    currentSignifiDeptFilters = currentSignifiDeptFilters.filter(d => d !== dept);
+                    if (currentSignifiDeptFilters.length === 0) currentSignifiDeptFilters = ['All'];
+                } else {
+                    currentSignifiDeptFilters.push(dept);
+                }
+            }
+            generateSignifiSummary();
+        }
+
+        function renderSignifiDeptFilters() {
+            const container = document.getElementById('dynamic-signifi-dept-tabs');
+            if (!container) return;
+            
+            let html = `<button class="filter-btn ${currentSignifiDeptFilters.includes('All') ? 'active' : ''}" onclick="toggleSignifiDeptFilter('All')">All</button>`;
+            
+            availableDepartments.forEach(dept => {
+                const safeDept = dept.replace(/'/g, "\\'");
+                html += `<button class="filter-btn ${currentSignifiDeptFilters.includes(dept) ? 'active' : ''}" onclick="toggleSignifiDeptFilter('${safeDept}')">${dept}</button>`;
+            });
+            
+            container.innerHTML = html;
+        }
+
         async function generateSignifiSummary() {
             const startStr = document.getElementById('summary-start').value;
             const endStr = document.getElementById('summary-end').value;
@@ -2351,12 +2407,9 @@
                 return;
             }
 
-            const [sYear, sMonth, sDay] = startStr.split('-');
-            const startD = new Date(sYear, sMonth - 1, sDay);
-            
-            const [eYear, eMonth, eDay] = endStr.split('-');
-            const endD = new Date(eYear, eMonth - 1, eDay);
-            
+            const startD = new Date(startStr + "T00:00:00");
+            const endD = new Date(endStr + "T23:59:59");
+
             if (endD < startD) {
                 alert("End date must be after start date.");
                 return;
@@ -2369,9 +2422,6 @@
                 currentD.setDate(currentD.getDate() + 1);
             }
 
-            const queryEndD = new Date(endD);
-            queryEndD.setHours(23, 59, 59, 999);
-
             const container = document.getElementById('summary-container');
             container.innerHTML = "<p>Loading summary...</p>";
 
@@ -2379,15 +2429,23 @@
                 // Fetch ONLY Signifi active employees
                 const empsSnapshot = await db.collection("employees").where("type", "==", "Signifi").get();
                 const employees = [];
-                empsSnapshot.forEach(doc => { 
-                    const emp = doc.data();
-                    if (!emp.isLaidOff) employees.push(emp);
-                });
+                const reportDepts = new Set();
                 
-                if(employees.length === 0) {
+                empsSnapshot.forEach(doc => {
+                    const emp = doc.data();
+                    if (!emp.isLaidOff) {
+                        employees.push(emp);
+                        reportDepts.add(emp.department ? emp.department.trim() : 'General');
+                    }
+                });
+
+                if (employees.length === 0) {
                     container.innerHTML = "<p>No active Signifi employees found.</p>";
                     return;
                 }
+
+                availableDepartments = Array.from(reportDepts).sort();
+                renderSignifiDeptFilters();
 
                 const overridesSnap = await db.collection("timesheet_overrides")
                     .where("date", ">=", startStr)
@@ -2397,21 +2455,18 @@
 
                 const shiftsSnap = await db.collection("shifts")
                     .where("timestamp", ">=", startD)
-                    .where("timestamp", "<=", queryEndD)
+                    .where("timestamp", "<=", endD)
                     .orderBy("timestamp", "asc").get();
-                
+
                 const shiftData = {};
                 shiftsSnap.forEach(doc => {
                     const s = doc.data();
-                    const d = s.timestamp.toDate(); 
-                    const year = d.getFullYear();
-                    const month = String(d.getMonth() + 1).padStart(2, '0');
-                    const day = String(d.getDate()).padStart(2, '0');
-                    const dateStr = `${year}-${month}-${day}`;
-                    
+                    const d = s.timestamp.toDate();
+                    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
                     if (!shiftData[s.employeeId]) shiftData[s.employeeId] = {};
                     if (!shiftData[s.employeeId][dateStr]) shiftData[s.employeeId][dateStr] = {};
-                    
+
                     if (s.action === "IN" && !shiftData[s.employeeId][dateStr].in) {
                         shiftData[s.employeeId][dateStr].in = d;
                     } else if (s.action === "OUT") {
@@ -2419,57 +2474,77 @@
                     }
                 });
 
-                // Group employees by department
+                // Group by department applying current filters
                 let depts = {};
                 employees.forEach(emp => {
                     let d = emp.department ? emp.department.trim() : 'General';
-                    if(!depts[d]) depts[d] = [];
+                    if (!currentSignifiDeptFilters.includes('All') && !currentSignifiDeptFilters.includes(d)) return;
+                    if (!depts[d]) depts[d] = [];
                     depts[d].push(emp);
                 });
-                
+
+                const sortVal = document.getElementById('signifi-report-sort').value;
+                const viewMode = document.getElementById('signifi-report-view-mode').value;
+
                 let orderedDepts = Object.keys(depts).sort();
                 let flatEmps = [];
                 orderedDepts.forEach(d => {
-                    depts[d].sort((a,b) => (a.name || '').localeCompare(b.name || ''));
+                    depts[d].sort((a,b) => {
+                        if (sortVal === 'name_asc') return (a.name || '').localeCompare(b.name || '');
+                        if (sortVal === 'name_desc') return (b.name || '').localeCompare(a.name || '');
+                        if (sortVal === 'newest') return (b.createdAt || 0) - (a.createdAt || 0);
+                        if (sortVal === 'oldest') return (a.createdAt || 0) - (b.createdAt || 0);
+                        return 0;
+                    });
                     flatEmps.push(...depts[d]);
                 });
+
+                if (flatEmps.length === 0) {
+                    container.innerHTML = "<p>No employees match the selected filters.</p>";
+                    return;
+                }
 
                 let html = '<table id="signifi-summary-table" class="report-table" style="white-space: nowrap; border-collapse: collapse; width: 100%; border: 2px solid #000; font-family: Calibri, sans-serif; font-size: 14px;">';
 
                 // Headers
-                html += '<tr><th rowspan="2" style="background-color: #e6e6e6; border: 1px solid #000; padding: 8px; text-align: center; vertical-align: middle;">Date</th>';
+                html += '<tr><th rowspan="2" style="background: #e6e6e6; border: 1px solid #000; padding: 8px; text-align: left;">Date</th>';
                 orderedDepts.forEach(d => {
-                    html += `<th colspan="${depts[d].length}" style="background-color: #bfbfbf; border: 1px solid #000; padding: 8px; text-align: center; font-weight: bold;">${d}</th>`;
+                    html += `<th colspan="${depts[d].length}" style="background: #e6e6e6; border: 1px solid #000; padding: 8px; text-align: center;">${d}</th>`;
                 });
-                html += '<th rowspan="2" style="background-color: #e6e6e6; border: 1px solid #000; padding: 8px; min-width: 150px; text-align: center; vertical-align: middle;">Note</th></tr><tr>';
+                html += '<th rowspan="2" style="background: #e6e6e6; border: 1px solid #000; padding: 8px; min-width: 150px;">Note</th></tr><tr>';
 
                 flatEmps.forEach(emp => {
-                    html += `<th style="background-color: #e6e6e6; border: 1px solid #000; padding: 8px; text-align: center; font-weight: bold;">${emp.name}</th>`;
+                    html += `<th style="background: #e6e6e6; border: 1px solid #000; padding: 8px; text-align: center;">${emp.name}</th>`;
                 });
                 html += '</tr>';
 
-                let weeklyTotals = {};
-                flatEmps.forEach(e => weeklyTotals[e.id] = 0);
+                let weeklyDays = {};
+                let weeklyExtra = {};
+                let grandDays = {};
+                let grandExtra = {};
+                
+                flatEmps.forEach(e => {
+                    weeklyDays[e.id] = 0;
+                    weeklyExtra[e.id] = 0;
+                    grandDays[e.id] = 0;
+                    grandExtra[e.id] = 0;
+                });
 
                 const parseTimeStr = (str) => {
                     if(!str) return 0;
                     str = str.toString();
-                    if(str.includes(':')) {
+                    if (str.includes(':')) {
                         let p = str.split(':');
                         return parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
                     }
                     let num = parseFloat(str);
-                    if(!isNaN(num)) return Math.round(num * 60);
+                    if (!isNaN(num)) return Math.round(num * 60);
                     return 0;
                 };
 
                 for (let i = 0; i < rangeDates.length; i++) {
                     let d = rangeDates[i];
-                    const year = d.getFullYear();
-                    const month = String(d.getMonth() + 1).padStart(2, '0');
-                    const day = String(d.getDate()).padStart(2, '0');
-                    const dateStr = `${year}-${month}-${day}`;
-                    
+                    let dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
                     let displayDate = d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
                     let isWeekend = d.getDay() === 0 || d.getDay() === 6;
                     let bgDate = isWeekend ? 'background-color: #bfbfbf;' : 'background-color: #ffffff;';
@@ -2484,20 +2559,16 @@
 
                         if (dayData && dayData.in) {
                             let roundedIn = new Date(dayData.in);
-                            if ((roundedIn.getHours() === 8 && roundedIn.getMinutes() >= 30) || (roundedIn.getHours() === 9 && roundedIn.getMinutes() <= 14)) {
-                                roundedIn.setHours(9, 0, 0, 0);
-                            }
+                            if ((roundedIn.getHours() === 8 && roundedIn.getMinutes() >= 30) || (roundedIn.getHours() === 9 && roundedIn.getMinutes() <= 14)) roundedIn.setHours(9, 0, 0, 0);
                             tIn = roundedIn.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
-                            
+
                             if (dayData.out) {
                                 let roundedOut = new Date(dayData.out);
-                                if ((roundedOut.getHours() === 16 && roundedOut.getMinutes() >= 50) || (roundedOut.getHours() === 17 && roundedOut.getMinutes() <= 14)) {
-                                    roundedOut.setHours(17, 0, 0, 0);
-                                }
+                                if ((roundedOut.getHours() === 16 && roundedOut.getMinutes() >= 50) || (roundedOut.getHours() === 17 && roundedOut.getMinutes() <= 14)) roundedOut.setHours(17, 0, 0, 0);
                                 tOut = roundedOut.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
-                                
+
                                 let diffMins = Math.floor((roundedOut - roundedIn) / 60000);
-                                
+
                                 if (isHourly) {
                                     tTotal = `${Math.floor(diffMins / 60)}:${(diffMins % 60).toString().padStart(2, '0')}`;
                                 } else {
@@ -2525,7 +2596,7 @@
                             let inM = parseTimeStr(tIn);
                             let outM = parseTimeStr(tOut);
                             let diff = Math.max(0, outM - inM);
-                            
+
                             if (isHourly) {
                                 tTotal = `${Math.floor(diff / 60)}:${(diff % 60).toString().padStart(2, '0')}`;
                             } else {
@@ -2539,60 +2610,113 @@
                             }
                         }
 
-                        // Weekly aggregation logic
-                        let addedMins = 0;
-                        if (tTotal && tTotal !== "Full Day" && !tTotal.toLowerCase().includes('vacation') && !tTotal.toLowerCase().includes('off') && !tTotal.toLowerCase().includes('stat') && !tTotal.toLowerCase().includes('weekend')) {
-                            addedMins += parseTimeStr(tTotal);
-                        }
-                        if (tBreak) {
-                            addedMins += parseTimeStr(tBreak);
-                        }
-                        weeklyTotals[emp.id] += addedMins;
+                        // Aggregation calculations
+                        let tTotalLower = tTotal.toString().toLowerCase();
+                        let countsAsFullDay = (tTotalLower === 'full day' || tTotalLower.includes('vacation') || tTotalLower.includes('sick') || tTotalLower.includes('paid lieu') || tTotalLower.includes('stat holiday'));
 
-                        // Display Formatting based on image_b590d6.png
+                        if (isHourly) {
+                            let m = 0;
+                            if (countsAsFullDay) {
+                                m = 480;
+                                weeklyDays[emp.id] += 1;
+                                grandDays[emp.id] += 1;
+                            } else if (tTotal && !tTotalLower.includes('off') && !tTotalLower.includes('weekend')) {
+                                m = parseTimeStr(tTotal);
+                                if (m > 0) {
+                                    weeklyDays[emp.id] += 1;
+                                    grandDays[emp.id] += 1;
+                                }
+                            }
+                            weeklyExtra[emp.id] += m;
+                            grandExtra[emp.id] += m;
+                        } else {
+                            if (countsAsFullDay) {
+                                weeklyDays[emp.id] += 1;
+                                grandDays[emp.id] += 1;
+                            } else if (tTotal && !tTotalLower.includes('off') && !tTotalLower.includes('weekend')) {
+                                let m = parseTimeStr(tTotal);
+                                if (m > 0) {
+                                    weeklyDays[emp.id] += 1;
+                                    grandDays[emp.id] += 1;
+                                }
+                            }
+                            if (tBreak) {
+                                let m = parseTimeStr(tBreak);
+                                weeklyExtra[emp.id] += m;
+                                grandExtra[emp.id] += m;
+                            }
+                        }
+
+                        // Display Formatting
+                        let cellBg = isWeekend ? "#bfbfbf" : "#ffffff";
+                        let cellColor = "#000000";
+
+                        if (tTotalLower.includes('off') || tTotalLower.includes('vacation') || tTotalLower.includes('stat holiday')) {
+                            cellBg = "#c65911";
+                            cellColor = "white";
+                        } else if (tTotalLower === "weekend" || (isWeekend && tTotal === "")) {
+                            tTotal = "Weekend";
+                            cellBg = "#bfbfbf";
+                        } else if (isWeekend && tTotal !== "" && tTotal !== "Weekend") {
+                            cellBg = "#e2efda";
+                        }
+
                         let displayStr = tTotal;
                         if (displayStr.toString().includes(':')) {
                             let parts = displayStr.split(':');
                             let dec = parseInt(parts[0]) + (parseInt(parts[1])/60);
                             displayStr = Math.round(dec * 100) / 100;
                         }
-                        
-                        let tTotalLower = tTotal.toString().toLowerCase();
-                        let cellBg = isWeekend ? "#bfbfbf" : "#ffffff";
-                        let cellColor = "#000000";
-
-                        if (tTotalLower.includes('off') || tTotalLower.includes('vacation') || tTotalLower.includes('stat holiday')) {
-                            cellBg = "#c65911"; // Rust orange from screenshot
-                            cellColor = "white";
-                        } else if (tTotalLower === "weekend" || (isWeekend && tTotal === "")) {
-                            displayStr = "Weekend";
-                            cellBg = "#bfbfbf";
-                        } else if (isWeekend && tTotal !== "" && tTotal !== "Weekend") {
-                            cellBg = "#e2efda"; // Faint green for weekend work
-                        }
 
                         html += `<td style="border: 1px solid #000; text-align: center; background-color: ${cellBg}; color: ${cellColor}; font-weight: bold;">${displayStr}</td>`;
                     });
                     
-                    html += '<td style="border: 1px solid #000; background-color: #ffffff;"></td></tr>';
+                    html += '<td style="border: 1px solid #000; background-color: #e6e6e6;"></td></tr>';
 
-                    // Insert green weekly totals row if Sunday or last day in range
-                    if (d.getDay() === 0 || i === rangeDates.length - 1) {
-                        html += `<tr style="background-color: #38761d; color: white; font-weight: bold;">
-                                 <td style="border: 1px solid #000; text-align: center;">Total hours or / Extra hours</td>`;
+                    // If Weekly Totals Mode is selected, insert rows at end of the week
+                    if (viewMode === 'weekly' && (d.getDay() === 0 || i === rangeDates.length - 1)) {
+                        html += `<tr style="background: #38761d; color: white; font-weight: bold;">
+                                 <td style="border: 1px solid #000; text-align: left; padding-left: 10px;">Total full days</td>`;
                         flatEmps.forEach(emp => {
-                            let totalMins = weeklyTotals[emp.id];
-                            let decimalHrs = Math.round((totalMins / 60) * 100) / 100;
+                            html += `<td style="border: 1px solid #000; text-align: center;">${weeklyDays[emp.id]}</td>`;
+                        });
+                        html += '<td style="border: 1px solid #000;"></td></tr>';
+
+                        html += `<tr style="background: #38761d; color: white; font-weight: bold;">
+                                 <td style="border: 1px solid #000; text-align: left; padding-left: 10px;">Total hours or / Extra hours</td>`;
+                        flatEmps.forEach(emp => {
+                            let decimalHrs = Math.round((weeklyExtra[emp.id] / 60) * 100) / 100;
                             html += `<td style="border: 1px solid #000; text-align: center;">${decimalHrs > 0 ? decimalHrs : "0"}</td>`;
-                            weeklyTotals[emp.id] = 0; // reset for next week
+                            
+                            // Reset for next week
+                            weeklyDays[emp.id] = 0;
+                            weeklyExtra[emp.id] = 0;
                         });
                         html += '<td style="border: 1px solid #000;"></td></tr>';
                     }
                 }
                 
-                // Bottom Note Row
-                html += `<tr><th style="border: 1px solid #000; background-color: #fce4d6; padding: 8px; text-align: center;">Note</th>`;
-                html += `<td colspan="${flatEmps.length}" style="border: 1px solid #000; background-color: #ffffff; text-align: left; padding-left: 10px;" contenteditable="true">Click here to type a note...</td><td style="border: 1px solid #000;"></td></tr>`;
+                // If Bottom Totals Mode is selected, output Grand Totals once at the very end
+                if (viewMode === 'bottom') {
+                    html += `<tr style="background: #38761d; color: white; font-weight: bold;">
+                             <td style="border: 1px solid #000; text-align: left; padding-left: 10px;">Total full days</td>`;
+                    flatEmps.forEach(emp => {
+                        html += `<td style="border: 1px solid #000; text-align: center;">${grandDays[emp.id]}</td>`;
+                    });
+                    html += '<td style="border: 1px solid #000;"></td></tr>';
+
+                    html += `<tr style="background: #38761d; color: white; font-weight: bold;">
+                             <td style="border: 1px solid #000; text-align: left; padding-left: 10px;">Total hours or / Extra hours</td>`;
+                    flatEmps.forEach(emp => {
+                        let decimalHrs = Math.round((grandExtra[emp.id] / 60) * 100) / 100;
+                        html += `<td style="border: 1px solid #000; text-align: center;">${decimalHrs > 0 ? decimalHrs : "0"}</td>`;
+                    });
+                    html += '<td style="border: 1px solid #000;"></td></tr>';
+                }
+
+                // Bottom Note row spanning all users
+                html += `<tr><th style="border: 1px solid #000; background: #fce4d6; padding: 8px; text-align: center;">Note</th>`;
+                html += `<td colspan="${flatEmps.length}" style="border: 1px solid #000; background: #ffffff; text-align: left; padding-left: 10px;" contenteditable="true">Click here to type a note before exporting...</td><td style="border: 1px solid #000;"></td></tr>`;
 
                 html += '</table>';
                 container.innerHTML = html;
