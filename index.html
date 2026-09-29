@@ -287,8 +287,21 @@
                 <button class="action-btn" onclick="openEmployeeModal()">+ Add New Employee</button>
             </div>
             
-            <div class="filter-tabs" id="dynamic-filter-tabs">
-                <button class="filter-btn active" onclick="setEmployeeFilter('All')">All Employees</button>
+            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 15px;">
+                <!-- Agencies Filter Row -->
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom: 10px; flex-wrap:wrap;">
+                    <strong style="font-size:1.1rem; color:#333; min-width: 110px;">Agencies:</strong>
+                    <div class="filter-tabs" id="dynamic-emp-agency-tabs" style="margin-bottom:0;">
+                        <button class="filter-btn active" onclick="setEmployeeAgencyFilter('All')">All</button>
+                    </div>
+                </div>
+                <!-- Departments Filter Row -->
+                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                    <strong style="font-size:1.1rem; color:#333; min-width: 110px;">Departments:</strong>
+                    <div class="filter-tabs" id="dynamic-emp-dept-tabs" style="margin-bottom:0;">
+                        <button class="filter-btn active" onclick="setEmployeeDeptFilter('All')">All</button>
+                    </div>
+                </div>
             </div>
 
             <table class="report-table" style="text-align: left;">
@@ -411,7 +424,9 @@
         let currentReportFilter = 'All'; 
         let currentDeptFilters = ['All']; 
         let availableDepartments = [];
-        let currentEmpFilter = 'All';
+        
+        let currentEmpAgencyFilter = 'All';
+        let currentEmpDeptFilter = 'All';
 
         // === LIVE TIMESHEET RECALCULATION ENGINE (UI) ===
         window.recalcTime = function(gIdx, eIdx, colIdx, numCols, empType, payType) {
@@ -1047,14 +1062,20 @@
         }
 
         // === 4. EMPLOYEE MANAGEMENT DIRECTORY ===
-        function setEmployeeFilter(filterType) {
-            currentEmpFilter = filterType;
+        function setEmployeeAgencyFilter(filterType) {
+            currentEmpAgencyFilter = filterType;
+            loadEmployees();
+        }
+
+        function setEmployeeDeptFilter(dept) {
+            currentEmpDeptFilter = dept;
             loadEmployees();
         }
 
         async function loadEmployees() {
             const tbody = document.getElementById('employee-list-body');
-            const filterTabs = document.getElementById('dynamic-filter-tabs');
+            const agencyTabs = document.getElementById('dynamic-emp-agency-tabs');
+            const deptTabs = document.getElementById('dynamic-emp-dept-tabs');
             
             tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">Loading...</td></tr>';
             
@@ -1068,22 +1089,32 @@
                 }
 
                 const agencies = new Set();
+                const depts = new Set();
+
                 snapshot.forEach(doc => {
                     const emp = doc.data();
                     if (emp.type === 'Agency') {
                         agencies.add(emp.agencyName ? emp.agencyName.trim() : 'Unnamed Agency');
                     }
+                    depts.add(emp.department ? emp.department.trim() : 'General');
                 });
 
-                let tabsHtml = `<button class="filter-btn ${currentEmpFilter === 'All' ? 'active' : ''}" onclick="setEmployeeFilter('All')">All Employees</button>
-                                <button class="filter-btn ${currentEmpFilter === 'Signifi' ? 'active' : ''}" onclick="setEmployeeFilter('Signifi')">Signifi</button>`;
-                
-                agencies.forEach(agency => {
+                // Render agency tabs
+                let agencyHtml = `<button class="filter-btn ${currentEmpAgencyFilter === 'All' ? 'active' : ''}" onclick="setEmployeeAgencyFilter('All')">All</button>
+                                  <button class="filter-btn ${currentEmpAgencyFilter === 'Signifi' ? 'active' : ''}" onclick="setEmployeeAgencyFilter('Signifi')">Signifi</button>`;
+                Array.from(agencies).sort().forEach(agency => {
                     const safeAgencyName = agency.replace(/'/g, "\\'");
-                    tabsHtml += `<button class="filter-btn ${currentEmpFilter === agency ? 'active' : ''}" onclick="setEmployeeFilter('${safeAgencyName}')">${agency}</button>`;
+                    agencyHtml += `<button class="filter-btn ${currentEmpAgencyFilter === agency ? 'active' : ''}" onclick="setEmployeeAgencyFilter('${safeAgencyName}')">${agency}</button>`;
                 });
-                
-                filterTabs.innerHTML = tabsHtml;
+                agencyTabs.innerHTML = agencyHtml;
+
+                // Render dept tabs
+                let deptHtml = `<button class="filter-btn ${currentEmpDeptFilter === 'All' ? 'active' : ''}" onclick="setEmployeeDeptFilter('All')">All</button>`;
+                Array.from(depts).sort().forEach(dept => {
+                    const safeDept = dept.replace(/'/g, "\\'");
+                    deptHtml += `<button class="filter-btn ${currentEmpDeptFilter === dept ? 'active' : ''}" onclick="setEmployeeDeptFilter('${safeDept}')">${dept}</button>`;
+                });
+                deptTabs.innerHTML = deptHtml;
 
                 let filteredCount = 0;
                 const renderEmployeeRow = (emp) => {
@@ -1116,13 +1147,18 @@
                 snapshot.forEach(doc => {
                     const emp = doc.data();
                     const empAgency = emp.agencyName ? emp.agencyName.trim() : 'Unnamed Agency';
+                    const empDept = emp.department ? emp.department.trim() : 'General';
                     
-                    let show = false;
-                    if (currentEmpFilter === 'All') show = true;
-                    else if (currentEmpFilter === 'Signifi' && emp.type === 'Signifi') show = true;
-                    else if (emp.type === 'Agency' && empAgency === currentEmpFilter) show = true;
+                    let showAgency = false;
+                    if (currentEmpAgencyFilter === 'All') showAgency = true;
+                    else if (currentEmpAgencyFilter === 'Signifi' && emp.type === 'Signifi') showAgency = true;
+                    else if (emp.type === 'Agency' && empAgency === currentEmpAgencyFilter) showAgency = true;
 
-                    if (show) {
+                    let showDept = false;
+                    if (currentEmpDeptFilter === 'All') showDept = true;
+                    else if (empDept === currentEmpDeptFilter) showDept = true;
+
+                    if (showAgency && showDept) {
                         tbody.innerHTML += renderEmployeeRow(emp);
                         filteredCount++;
                     }
