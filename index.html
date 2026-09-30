@@ -916,56 +916,70 @@
                 }
                 
                 pendingBadgeId = badgeId;
-                
-                const shiftQuery = await db.collection('shifts').where('employeeId', '==', badgeId).get();
 
-                pendingAction = 'IN';
+                const now = new Date();
+                const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                
+                // Get ONLY today's raw physical punches to avoid yesterday's missed punch-outs affecting today
+                const shiftQuery = await db.collection('shifts')
+                    .where('employeeId', '==', badgeId)
+                    .where('timestamp', '>=', startOfDay)
+                    .get();
+
+                let latestRawTime = 0;
+                let lastRawAction = null;
+                let rawIn = false;
+                let rawOut = false;
+
                 if (!shiftQuery.empty) {
-                    let latestTime = 0;
-                    let lastPunchDoc = null;
-                    
                     shiftQuery.docs.forEach(doc => {
                         const data = doc.data();
                         if (data.timestamp) {
                             const timeMs = data.timestamp.toMillis();
-                            if (timeMs > latestTime) {
-                                latestTime = timeMs;
-                                lastPunchDoc = data;
+                            if (timeMs > latestRawTime) {
+                                latestRawTime = timeMs;
+                                lastRawAction = data.action;
                             }
+                            if (data.action === 'IN') rawIn = true;
+                            if (data.action === 'OUT') rawOut = true;
                         }
                     });
 
-                    if (lastPunchDoc) {
-                        // --- 10 MINUTE COOLDOWN LOGIC START ---
-                        const nowMs = Date.now();
-                        const diffMs = nowMs - latestTime;
+                    // 10 MINUTE COOLDOWN LOGIC (Prevents accidental double taps)
+                    if (latestRawTime > 0) {
+                        const diffMs = Date.now() - latestRawTime;
                         const tenMinutesMs = 10 * 60 * 1000;
-
-                        // Check if the last punch was less than 10 minutes ago
                         if (diffMs < tenMinutesMs && diffMs > -tenMinutesMs) {
-                            const lastPunchTimeFormatted = new Date(latestTime).toLocaleTimeString('en-US', { hour12: true, hour: 'numeric', minute: '2-digit' });
-                            const actionWord = lastPunchDoc.action === 'IN' ? 'punched IN' : 'punched OUT';
+                            const lastPunchTimeFormatted = new Date(latestRawTime).toLocaleTimeString('en-US', { hour12: true, hour: 'numeric', minute: '2-digit' });
+                            const actionWord = lastRawAction === 'IN' ? 'punched IN' : 'punched OUT';
 
-                            // Show rejection message
                             statusDiv.style.display = 'block';
                             statusDiv.className = 'status-message error';
                             statusDiv.innerHTML = `You have already ${actionWord} at <strong>${lastPunchTimeFormatted}</strong>.<br>Please wait 10 minutes before tapping again.`;
 
-                            // Clear error and reset state after 5 seconds
-                            setTimeout(() => {
-                                statusDiv.style.display = 'none';
-                                isProcessingPunch = false; 
-                                manualInput.focus();
-                            }, 5000);
-                            
-                            return; // Abort the current punch process
-                        }
-                        // --- 10 MINUTE COOLDOWN LOGIC END ---
-
-                        if (lastPunchDoc.action === 'IN') {
-                            pendingAction = 'OUT';
+                            setTimeout(() => { statusDiv.style.display = 'none'; isProcessingPunch = false; manualInput.focus(); }, 5000);
+                            return; 
                         }
                     }
+                }
+
+                // Check Admin Manual Overrides for TODAY
+                const overrideDoc = await db.collection('timesheet_overrides').doc(`${badgeId}_${todayStr}`).get();
+                const override = overrideDoc.exists ? overrideDoc.data() : null;
+
+                let effIn = rawIn ? "System IN" : "";
+                let effOut = rawOut ? "System OUT" : (rawIn && !rawOut ? "Missed" : "");
+
+                if (override) {
+                    if (override.in !== undefined) effIn = override.in;
+                    if (override.out !== undefined) effOut = override.out;
+                }
+
+                // DETERMINE NEXT ACTION BASED ON EFFECTIVE STATE
+                pendingAction = 'IN'; 
+                if (effIn && effIn !== "0" && effIn !== "0:00" && (!effOut || effOut.toLowerCase() === 'missed')) {
+                    pendingAction = 'OUT';
                 }
 
                 statusDiv.style.display = 'none'; 
@@ -2673,7 +2687,7 @@
                     
                     html += '<td style="border: 1px solid #000; background-color: #e6e6e6;"></td></tr>';
 
-                    // If Weekly Totals Mode is selected, insert rows at end of the week
+                    // If Full Report (Weekly Totals Mode) is selected, insert rows at end of the week
                     if (viewMode === 'weekly' && (d.getDay() === 0 || i === rangeDates.length - 1)) {
                         html += `<tr style="background: #38761d; color: white; font-weight: bold;">
                                  <td style="border: 1px solid #000; text-align: left; padding-left: 10px;">Total full days</td>`;
@@ -2696,7 +2710,7 @@
                     }
                 }
                 
-                // If Bottom Totals Mode is selected, output Grand Totals once at the very end
+                // If Weekly Report (Bottom Totals Mode) is selected, output Grand Totals once at the very end
                 if (viewMode === 'bottom') {
                     html += `<tr style="background: #38761d; color: white; font-weight: bold;">
                              <td style="border: 1px solid #000; text-align: left; padding-left: 10px;">Total full days</td>`;
