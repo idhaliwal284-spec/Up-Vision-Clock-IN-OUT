@@ -9,30 +9,69 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
     <!-- JsBarcode for Barcode Generation -->
     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+    <!-- Google Material Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
     
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f7f6; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            margin: 0; padding: 0; 
+            background: linear-gradient(135deg, #f0f4f8, #e1e7ef); 
+            display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; 
+            overflow: hidden;
+        }
         
-        /* --- FIXED CORNER LAYOUTS --- */
-        .top-left-title { position: absolute; top: 25px; left: 30px; font-size: 1.8rem; color: #333; margin: 0; font-weight: bold; z-index: 10; }
-        .top-center-logo { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); max-width: 250px; max-height: 80px; object-fit: contain; z-index: 10; }
+        /* --- KIOSK HOME SCREEN UI FIXES --- */
+        .top-header-bar {
+            position: absolute; top: 0; left: 0; width: 100%; height: 80px;
+            background-color: #8b1d24;
+            z-index: 9;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+            display: flex; justify-content: center; align-items: center;
+        }
+        .top-center-logo-wrapper {
+            background: #fff;
+            padding: 5px 20px;
+            border-radius: 6px;
+            display: flex; justify-content: center; align-items: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .top-center-logo {
+            max-height: 45px;
+            object-fit: contain;
+        }
         
-        /* Dashboard DB Status Indicator */
-        #connection-status { position: absolute; top: 35px; right: 175px; width: 16px; height: 16px; border-radius: 50%; background-color: #ffc107; z-index: 10; box-shadow: 0 0 5px rgba(0,0,0,0.2); border: 2px solid #fff; transition: 0.3s; }
+        .bottom-title {
+            position: absolute; bottom: 20px; left: 0; width: 100%;
+            text-align: center; font-size: 2.2rem; font-weight: 900;
+            color: #111; z-index: 10; margin: 0; letter-spacing: 1px;
+        }
+
+        .vending-machine-bg { 
+            position: absolute; bottom: 65px; left: 50%; transform: translateX(-50%); 
+            height: 50vh; z-index: 1; pointer-events: none; opacity: 0.6; 
+        }
+        .vending-machine-bg img { height: 100%; object-fit: contain; }
         
-        #admin-btn { position: absolute; top: 25px; right: 30px; background: #e9ecef; border: 1px solid #ccc; color: #333; cursor: pointer; font-size: 1rem; padding: 8px 16px; border-radius: 4px; font-weight: bold; transition: 0.2s; z-index: 10; }
-        #admin-btn:hover { background: #d3d9df; }
+        /* Dashboard DB Status Indicator (Coordinates UNTOUCHED as requested) */
+        #connection-status { position: absolute; top: 35px; right: 175px; width: 16px; height: 16px; border-radius: 50%; background-color: #ffc107; z-index: 11; box-shadow: 0 0 5px rgba(0,0,0,0.2); border: 2px solid #fff; transition: 0.3s; }
         
-        /* Kiosk UI */
-        #kiosk-view { text-align: center; width: 100%; max-width: 900px; padding: 20px; margin-top: 60px; }
-        #clock { font-size: 6rem; font-weight: bold; color: #333; margin-bottom: 10px; }
-        #date-display { font-size: 1.8rem; color: #666; margin-bottom: 40px; }
+        /* Updated Admin Button to Settings Icon */
+        #admin-btn { position: absolute; top: 24px; right: 30px; background: transparent; border: none; color: #ffffff; cursor: pointer; transition: 0.2s; z-index: 12; padding: 0; display: flex; align-items: center; justify-content: center; }
+        #admin-btn:hover { transform: rotate(90deg); color: #f4f7f6; }
         
-        .input-group { display: flex; justify-content: center; gap: 10px; margin-bottom: 20px; }
-        #manual-input { padding: 15px; font-size: 1.5rem; width: 300px; text-align: center; border: 2px solid #ccc; border-radius: 8px; }
-        #manual-input:focus { border-color: #007bff; outline: none; }
-        .submit-btn { padding: 15px 30px; font-size: 1.5rem; background-color: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
-        .submit-btn:hover { background-color: #0056b3; }
+        /* Kiosk UI Elements */
+        #kiosk-view { text-align: center; width: 100%; max-width: 900px; padding: 20px; margin-top: 60px; position: relative; z-index: 5; }
+        #clock { font-size: 7rem; font-weight: 800; color: #1e293b; margin-bottom: 5px; text-shadow: 2px 4px 10px rgba(0,0,0,0.15); }
+        #date-display { font-size: 1.5rem; color: #475569; margin-bottom: 40px; }
+        
+        .input-group { display: flex; justify-content: center; gap: 10px; margin-bottom: 20px; align-items: center; }
+        
+        #manual-input { padding: 15px 15px 15px 55px; font-size: 1.5rem; width: 300px; text-align: left; border: 2px solid #ccc; border-radius: 8px; box-sizing: border-box; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); }
+        #manual-input:focus { border-color: #8b1d24; outline: none; }
+        
+        .submit-btn { padding: 14px 25px; font-size: 1.5rem; background-color: #9c1c26; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; display: flex; align-items: center; box-shadow: 0 5px 15px rgba(156,28,38,0.4); transition: 0.2s; }
+        .submit-btn:hover { background-color: #7a151d; transform: translateY(-2px); box-shadow: 0 7px 20px rgba(156,28,38,0.6); }
 
         .status-message { font-size: 1.2rem; padding: 15px; border-radius: 8px; margin-top: 15px; display: none; word-wrap: break-word; }
         .success { background-color: #d4edda; color: #155724; border: 2px solid #c3e6cb; }
@@ -90,25 +129,48 @@
 </head>
 <body>
 
-    <!-- KIOSK BACKGROUND CORNER ELEMENTS -->
-    <h1 class="top-left-title">Up Vision Clock IN & OUT</h1>
-    <img src="image_1fb393.png" alt="Signifi Solutions Inc. Logo" class="top-center-logo" onerror="this.onerror=null; this.alt='Logo missing. Place image_1fb393.png in the same folder as index.html.'; this.style.border='2px dashed #ccc'; this.style.padding='10px';">
+    <!-- UPDATED KIOSK BACKGROUND CORNER ELEMENTS -->
+    <div class="top-header-bar">
+        <div class="top-center-logo-wrapper">
+            <img src="image_1fb393.png" alt="Signifi Solutions Inc. Logo" class="top-center-logo" onerror="this.onerror=null; this.alt='Logo missing. Place image_1fb393.png in the same folder as index.html.'; this.style.padding='5px';">
+        </div>
+    </div>
     
-    <!-- Status Indicator -->
+    <!-- Status Indicator (Left completely identical coordinate-wise) -->
     <div id="connection-status" title="Checking database connection..."></div>
-    <button id="admin-btn" onclick="showLoginModal()">Admin Access</button>
+    <button id="admin-btn" onclick="showLoginModal()" title="Admin Settings">
+        <span class="material-symbols-outlined" style="font-size: 32px;">settings</span>
+    </button>
+
+    <div class="vending-machine-bg">
+        <!-- Transparent background image of vending machine -->
+        <img src="vending_machine.png" alt="" onerror="this.style.display='none';">
+    </div>
 
     <!-- Kiosk View -->
     <div id="kiosk-view">
         <div id="clock">00:00:00</div>
         <div id="date-display">Date</div>
-        <h2>Scan your Badge or Enter ID to Punch In/Out</h2>
+        <h2 style="font-size: 1.4rem; color: #333; margin-bottom: 15px; font-weight: 600;">Scan your Badge or Enter ID to Punch In/Out</h2>
         <div class="input-group">
-            <input type="text" id="manual-input" placeholder="Enter Badge ID" autofocus autocomplete="off">
-            <button class="submit-btn" onclick="initiatePunch()">Submit</button>
+            <div style="position: relative; display: inline-block;">
+                <span class="material-symbols-outlined" style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: #777; font-size: 28px;">badge</span>
+                <input type="text" id="manual-input" placeholder="Enter Badge ID" autofocus autocomplete="off">
+            </div>
+            <button class="submit-btn" onclick="initiatePunch()">
+                Submit <span class="material-symbols-outlined" style="font-size: 24px; margin-left: 5px;">check_circle</span>
+            </button>
         </div>
+        
+        <div style="margin-top: 15px; color: #883333; z-index: 5; position: relative;">
+            <span class="material-symbols-outlined" style="font-size: 40px; margin-right: 15px;">contact_page</span>
+            <span class="material-symbols-outlined" style="font-size: 40px;">contactless</span>
+        </div>
+        
         <div id="status-display" class="status-message"></div>
     </div>
+
+    <h1 class="bottom-title">UP VISION CLOCK IN & OUT</h1>
 
     <!-- Confirmation Modal for Punch -->
     <div id="confirm-modal" class="modal">
