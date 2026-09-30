@@ -161,7 +161,7 @@
         <div class="input-group">
             <div style="position: relative; display: inline-block;">
                 <span class="material-symbols-outlined" style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: #777; font-size: 28px;">badge</span>
-                <input type="text" id="manual-input" placeholder="Enter Badge ID" autofocus autocomplete="off">
+                <input type="password" id="manual-input" placeholder="Enter Badge ID" autofocus autocomplete="off">
             </div>
             <button class="submit-btn" onclick="initiatePunch()">
                 Submit <span class="material-symbols-outlined" style="font-size: 24px; margin-left: 5px;">check_circle</span>
@@ -175,8 +175,6 @@
         
         <div id="status-display" class="status-message"></div>
     </div>
-
-    <h1 class="bottom-title">UP VISION CLOCK IN & OUT</h1>
 
     <!-- Confirmation Modal for Punch -->
     <div id="confirm-modal" class="modal">
@@ -918,7 +916,8 @@
         // === 2. KIOSK CLOCK & INPUT LOGIC ===
         setInterval(() => {
             const now = new Date();
-            document.getElementById('clock').innerText = now.toLocaleTimeString('en-US', { hour12: false });
+            // CHAGNED TO 12-HOUR FORMAT AS REQUESTED
+            document.getElementById('clock').innerText = now.toLocaleTimeString('en-US', { hour12: true });
             document.getElementById('date-display').innerText = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
             
             // Trigger auto punch out at exactly 11:59:00 PM
@@ -934,6 +933,25 @@
                 manualInput.focus();
             }
         });
+
+        // Aggressive Kiosk Auto-Focus System 
+        // Forces the cursor to always be in the tap box when the home screen is active.
+        setInterval(() => {
+            const adminView = document.getElementById('admin-view');
+            const modals = document.querySelectorAll('.modal');
+            let isModalOpen = false;
+            modals.forEach(m => {
+                if (m.style.display === 'flex' || m.style.display === 'block') {
+                    isModalOpen = true;
+                }
+            });
+
+            if (adminView && adminView.style.display !== 'block' && !isModalOpen) {
+                if (document.activeElement !== manualInput) {
+                    manualInput.focus();
+                }
+            }
+        }, 500);
 
         let isProcessingPunch = false;
         let pendingBadgeId = null;
@@ -968,6 +986,7 @@
                     setTimeout(() => {
                         statusDiv.style.display = 'none';
                         isProcessingPunch = false; 
+                        manualInput.focus();
                     }, 3000);
                     return;
                 }
@@ -979,6 +998,7 @@
                     setTimeout(() => {
                         statusDiv.style.display = 'none';
                         isProcessingPunch = false; 
+                        manualInput.focus();
                     }, 3000);
                     return;
                 }
@@ -1064,12 +1084,14 @@
                 setTimeout(() => {
                     statusDiv.style.display = 'none';
                     isProcessingPunch = false; 
+                    manualInput.focus();
                 }, 5000);
             }
         }
 
         async function executePunch() {
             document.getElementById('confirm-modal').style.display = 'none';
+            manualInput.focus(); // Immediately focus so the next person can scan instantly
             const statusDiv = document.getElementById('status-display');
             
             try {
@@ -1098,6 +1120,7 @@
                 statusDiv.className = 'status-message error';
                 statusDiv.innerText = "Error saving punch. " + err.message;
                 isProcessingPunch = false; 
+                manualInput.focus();
             }
         }
 
